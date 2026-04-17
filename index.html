@@ -192,7 +192,7 @@ Return ONLY valid JSON no markdown:
 {"us500":{"price":7080.5,"direction":"LONG","note":"reason max 8 words"},"gold":{"price":3310.0,"direction":"FORMING","note":"reason"},"eurusd":{"price":1.13450,"direction":"NO_SIGNAL","note":"reason"}}`;
 
   try{
-    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:500,system:sys,messages:[{role:'user',content:'Scan all 3 instruments now.'}],tools:[{type:'web_search_20250305',name:'web_search'}]})});
+   headers:{'Content-Type':'application/json','x-api-key':'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','anthropic-version':'2023-06-01'}
     const d=await r.json();
     const txt=d.content.filter(b=>b.type==='text').map(b=>b.text).join('');
     const m=txt.match(/\{[\s\S]*\}/);
