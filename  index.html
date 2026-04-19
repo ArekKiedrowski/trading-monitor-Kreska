@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0d0f14">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Trading Monitor">
+<link rel="manifest" href="manifest.json">
+<title>Trading Monitor</title>
+<style>
+:root{--bg:#0d0f14;--bg2:#161920;--bg3:#1e2230;--border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.12);--text:#e2e6f0;--muted:#5a6070;--muted2:#8892a4;--green:#10b981;--gbg:rgba(16,185,129,0.08);--gb:rgba(16,185,129,0.25);--red:#ef4444;--rbg:rgba(239,68,68,0.08);--rb:rgba(239,68,68,0.25);--amber:#f59e0b;--abg:rgba(245,158,11,0.08);--ab:rgba(245,158,11,0.25);--blue:#3b82f6;--r:12px;--rs:8px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;padding:1.25rem 1rem 4rem;-webkit-font-smoothing:antialiased}
+.wrap{max-width:520px;margin:0 auto}
+.top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.25rem}
+.top h1{font-size:17px;font-weight:600}
+.top p{font-size:12px;color:var(--muted2);margin-top:3px}
+.clock{font-size:30px;font-weight:300;font-variant-numeric:tabular-nums;text-align:right;line-height:1}
+.clock.on{color:var(--green)}
+.day{font-size:11px;color:var(--muted);text-align:right;margin-top:2px}
+.sbar{display:flex;align-items:center;gap:8px;margin-bottom:1rem;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--rs)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:background .3s}
+.dot.live{background:var(--green)}.dot.wait{background:var(--amber)}
+.stxt{font-size:13px;color:var(--muted2);flex:1}
+.nscan{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.settings{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:1rem}
+.scell{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rs);padding:10px 12px}
+.slbl{font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em}
+.sinput{background:transparent;border:none;color:var(--text);font-size:15px;font-weight:500;width:100%}
+.sinput:focus{outline:none}
+.ssub{font-size:11px;color:var(--muted);margin-top:2px}
+.brow{display:flex;gap:8px;margin-bottom:1.5rem}
+.bprimary{flex:1;padding:12px;border:1px solid var(--gb);border-radius:var(--r);background:var(--gbg);color:var(--green);font-size:14px;font-weight:600;cursor:pointer;transition:all .15s}
+.bprimary:hover{background:rgba(16,185,129,0.14)}
+.bprimary.stop{border-color:var(--rb);background:var(--rbg);color:var(--red)}
+.bsec{padding:12px 16px;border:1px solid var(--border2);border-radius:var(--r);background:transparent;color:var(--muted2);font-size:13px;cursor:pointer;transition:all .15s;white-space:nowrap}
+.bsec:hover{border-color:var(--blue);color:var(--blue)}
+.slabel{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:.6rem}
+.instruments{display:flex;flex-direction:column;gap:.5rem;margin-bottom:1.5rem}
+.icard{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:1rem 1.25rem;transition:border-color .3s,background .3s}
+.icard.forming{border-color:var(--ab);background:var(--abg)}
+.icard.sig-long{border-color:var(--gb);background:var(--gbg)}
+.icard.sig-short{border-color:var(--rb);background:var(--rbg)}
+.icard.scanning{border-color:var(--ab)}
+.itop{display:flex;justify-content:space-between;align-items:center}
+.iname{font-size:15px;font-weight:600}
+.iright{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.iprice{font-size:15px;font-variant-numeric:tabular-nums;color:var(--muted2)}
+.ichange{font-size:12px;font-variant-numeric:tabular-nums}
+.ichange.up{color:var(--green)}.ichange.down{color:var(--red)}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
+.b-long{background:var(--gbg);color:var(--green);border:1px solid var(--gb)}
+.b-short{background:var(--rbg);color:var(--red);border:1px solid var(--rb)}
+.b-forming{background:var(--abg);color:var(--amber);border:1px solid var(--ab)}
+.b-wait{background:var(--bg3);color:var(--muted2);border:1px solid var(--border)}
+.b-scan{background:var(--abg);color:var(--amber);border:1px solid var(--ab)}
+.ibody{display:none;margin-top:.75rem}
+.icard.sig-long .ibody,.icard.sig-short .ibody,.icard.forming .ibody{display:block}
+.forming-msg{font-size:12px;color:var(--amber);line-height:1.6;padding:8px 12px;background:rgba(245,158,11,0.06);border-radius:var(--rs)}
+.sgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:.75rem}
+.sc{background:rgba(255,255,255,0.04);border-radius:var(--rs);padding:8px 10px}
+.sc-l{font-size:10px;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:.04em}
+.sc-v{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
+.ve{color:var(--text)}.vsl{color:var(--red)}.vtp{color:var(--green)}.vlot{color:var(--blue)}
+.indicators{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:.75rem}
+.ind{background:rgba(255,255,255,0.04);border-radius:var(--rs);padding:6px 10px;font-size:11px}
+.ind-l{color:var(--muted);margin-bottom:2px}
+.ind-v{font-weight:500;font-size:12px}
+.inote{font-size:12px;color:var(--muted2);line-height:1.6;margin-bottom:.75rem}
+.iaction{padding:10px 12px;background:rgba(255,255,255,0.04);border-radius:var(--rs);font-size:12px;color:var(--text);line-height:1.8}
+.iaction strong{color:var(--amber)}
+.imeta{display:flex;gap:12px;margin-top:.5rem}
+.mi{font-size:11px;color:var(--muted)}.mi span{color:var(--muted2)}
+.logbox{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:1rem 1.25rem}
+.lempty{font-size:13px;color:var(--muted)}
+.lrow{display:flex;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px}
+.lrow:last-child{border:none}
+.lt{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;min-width:46px}
+.li{font-weight:600;min-width:56px}
+.ld.long{color:var(--green)}.ld.short{color:var(--red)}.ld.forming{color:var(--amber)}
+.ldet{color:var(--muted2)}
+.spinner{display:inline-block;width:10px;height:10px;border:1.5px solid rgba(255,255,255,0.1);border-top-color:var(--amber);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.disc{font-size:11px;color:var(--muted);text-align:center;margin-top:2rem;line-height:1.6;opacity:.5}
+.free-badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;background:var(--gbg);color:var(--green);border:1px solid var(--gb);margin-left:8px;vertical-align:middle}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="top">
+  <div>
+    <h1>Trading Monitor <span class="free-badge">free</span></h1>
+    <p>US500 · GOLD · EURUSD — 9:00–24:00 · analiza techniczna</p>
+  </div>
+  <div><div class="clock" id="clock">--:--</div><div class="day" id="daytxt">--</div></div>
+</div>
+
+<div class="sbar">
+  <div class="dot" id="dot"></div>
+  <span class="stxt" id="stxt">Gotowy — kliknij Start</span>
+  <span class="nscan" id="nscan"></span>
+</div>
+
+<div class="settings">
+  <div class="scell"><div class="slbl">Kapitał (PLN)</div><input class="sinput" id="capital" type="number" value="10000" step="1000" oninput="updateRisk()"><div class="ssub" id="rsub">Ryzyko/trade: 200 PLN</div></div>
+  <div class="scell"><div class="slbl">Skan co (min)</div><input class="sinput" id="scanmin" type="number" value="5" min="1" max="30"><div class="ssub">Zalecane: 5 min</div></div>
+</div>
+
+<div class="brow">
+  <button class="bprimary" id="btnstart" onclick="toggleMonitor()">Start monitoring ▶</button>
+  <button class="bsec" onclick="scanNow()">Skan teraz</button>
+</div>
+
+<div class="slabel">instrumenty</div>
+<div class="instruments">
+  <div class="icard" id="card-us500"><div class="itop"><span class="iname">US500</span><div class="iright"><span class="ichange" id="chg-us500"></span><span class="iprice" id="price-us500">—</span><span class="badge b-wait" id="badge-us500">oczekiwanie</span></div></div><div class="ibody" id="body-us500"></div></div>
+  <div class="icard" id="card-gold"><div class="itop"><span class="iname">GOLD</span><div class="iright"><span class="ichange" id="chg-gold"></span><span class="iprice" id="price-gold">—</span><span class="badge b-wait" id="badge-gold">oczekiwanie</span></div></div><div class="ibody" id="body-gold"></div></div>
+  <div class="icard" id="card-eurusd"><div class="itop"><span class="iname">EUR/USD</span><div class="iright"><span class="ichange" id="chg-eurusd"></span><span class="iprice" id="price-eurusd">—</span><span class="badge b-wait" id="badge-eurusd">oczekiwanie</span></div></div><div class="ibody" id="body-eurusd"></div></div>
+</div>
+
+<div class="slabel">log sygnałów</div>
+<div class="logbox" id="logbox"><div class="lempty">Brak sygnałów — uruchom monitoring</div></div>
+
+<p class="disc">Nie jest poradą inwestycyjną. Używaj wyłącznie na koncie demo.<br>Decyzja i ryzyko należą wyłącznie do Ciebie.</p>
+</div>
+
+<script>
+const CFG = {
+  us500:  {name:'US500',   ticker:'^GSPC', sl:20,     tp:40,     dec:1, lot:0.05},
+  gold:   {name:'GOLD',    ticker:'GC=F',  sl:25,     tp:50,     dec:1, lot:0.05},
+  eurusd: {name:'EUR/USD', ticker:'EURUSD=X', sl:0.0015, tp:0.0030, dec:5, lot:0.05}
+};
+
+const PROXY = 'https://api.allorigins.win/get?url=';
+
+let running=false, nextIn=0, logs=[];
+let history = {us500:[], gold:[], eurusd:[]};
+
+function waw(){
+  const now=new Date(), tz='Europe/Warsaw';
+  const g=t=>parseInt(new Intl.DateTimeFormat('pl-PL',{timeZone:tz,[t]:'2-digit',hour12:false}).format(now));
+  const h=g('hour'), m=g('minute');
+  const dow=new Intl.DateTimeFormat('pl-PL',{timeZone:tz,weekday:'long'}).format(now);
+  return{h,m,str:`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`,active:h>=9&&h<24,dow};
+}
+
+function tick(){
+  const t=waw();
+  const el=document.getElementById('clock');
+  el.textContent=t.str; el.className='clock'+(t.active?' on':'');
+  document.getElementById('daytxt').textContent=t.dow;
+  if(running&&nextIn>0){nextIn--;document.getElementById('nscan').textContent=`skan za ${nextIn}s`;if(nextIn<=0)scan();}
+}
+
+function updateRisk(){
+  const cap=parseFloat(document.getElementById('capital').value)||10000;
+  document.getElementById('rsub').textContent=`Ryzyko/trade: ${(cap*0.02).toFixed(0)} PLN`;
+}
+
+function setDot(t){document.getElementById('dot').className='dot'+(t==='live'?' live':t==='wait'?' wait':'');}
+function setTxt(t){document.getElementById('stxt').textContent=t;}
+function setBadge(id,cls,txt){
+  const el=document.getElementById('badge-'+id);
+  el.className='badge b-'+cls;
+  el.innerHTML=cls==='scan'?`<span class="spinner"></span> ${txt}`:txt;
+}
+function setCard(id,sig){
+  document.getElementById('card-'+id).className='icard'+(sig==='long'?' sig-long':sig==='short'?' sig-short':sig==='forming'?' forming':sig==='scan'?' scanning':'');
+}
+
+function addLog(instr,dir,detail){
+  const t=waw();
+  logs.unshift({time:t.str,instr,dir,detail});
+  if(logs.length>30)logs.pop();
+  renderLog();
+  if(Notification.permission==='granted' && (dir==='long'||dir==='short')){
+    new Notification(`${dir.toUpperCase()} ${instr}`,{body:detail,requireInteraction:true});
+  }
+}
+
+function renderLog(){
+  const b=document.getElementById('logbox');
+  if(!logs.length){b.innerHTML='<div class="lempty">Brak sygnałów</div>';return;}
+  b.innerHTML=logs.map(e=>`<div class="lrow"><span class="lt">${e.time}</span><span class="li">${e.instr}</span><span class="ld ${e.dir}">${e.dir==='forming'?'FORMING':e.dir.toUpperCase()}</span><span class="ldet">${e.detail}</span></div>`).join('');
+}
+
+// EMA calculation
+function ema(data, period){
+  if(data.length < period) return null;
+  const k = 2/(period+1);
+  let e = data.slice(0,period).reduce((a,b)=>a+b,0)/period;
+  for(let i=period;i<data.length;i++) e = data[i]*k + e*(1-k);
+  return e;
+}
+
+// ATR calculation
+function atr(highs, lows, closes, period=14){
+  if(closes.length < period+1) return null;
+  const trs = [];
+  for(let i=1;i<closes.length;i++){
+    trs.push(Math.max(highs[i]-lows[i], Math.abs(highs[i]-closes[i-1]), Math.abs(lows[i]-closes[i-1])));
+  }
+  return trs.slice(-period).reduce((a,b)=>a+b,0)/period;
+}
+
+// Momentum
+function momentum(data, period=10){
+  if(data.length < period) return 0;
+  return data[data.length-1] - data[data.length-1-period];
+}
+
+function analyzeSignal(key, prices, highs, lows){
+  if(!prices || prices.length < 30) return {dir:'NO_SIGNAL', note:'za mało danych'};
+  
+  const closes = prices;
+  const e20 = ema(closes, 20);
+  const e50 = ema(closes, 50);
+  const e20_prev = ema(closes.slice(0,-5), 20);
+  const e50_prev = ema(closes.slice(0,-5), 50);
+  const atrVal = atr(highs, lows, closes, 14);
+  const mom = momentum(closes, 10);
+  const price = closes[closes.length-1];
+  const atrMult = atrVal ? (atrVal / price * 100) : 0;
+
+  // Trend direction
+  const trendUp = e20 > e50;
+  const trendDown = e20 < e50;
+  
+  // Trend strengthening
+  const trendStrengthening = trendUp ? (e20 - e50) > (e20_prev - e50_prev) : (e50 - e20) > (e50_prev - e20_prev);
+  
+  // Momentum aligned with trend
+  const momUp = mom > 0;
+  const momDown = mom < 0;
+  
+  // Volatility expanding (ATR above average)
+  const volExpanding = atrMult > 0.3;
+
+  // Price above/below EMAs
+  const priceAboveEMAs = price > e20 && price > e50;
+  const priceBelowEMAs = price < e20 && price < e50;
+
+  let dir = 'NO_SIGNAL';
+  let note = '';
+
+  // LONG signal: trend up + momentum up + price above EMAs
+  if(trendUp && momUp && priceAboveEMAs){
+    if(trendStrengthening && volExpanding){
+      dir = 'LONG';
+      note = `EMA20>${e20.toFixed(1)} > EMA50>${e50.toFixed(1)}, momentum ↑, ATR=${atrVal?atrVal.toFixed(1):'?'}`;
+    } else {
+      dir = 'FORMING';
+      note = `Trend wzrostowy, czekam na potwierdzenie. EMA spread=${Math.abs(e20-e50).toFixed(1)}`;
+    }
+  }
+  // SHORT signal: trend down + momentum down + price below EMAs
+  else if(trendDown && momDown && priceBelowEMAs){
+    if(trendStrengthening && volExpanding){
+      dir = 'SHORT';
+      note = `EMA20=${e20.toFixed(1)} < EMA50=${e50.toFixed(1)}, momentum ↓, ATR=${atrVal?atrVal.toFixed(1):'?'}`;
+    } else {
+      dir = 'FORMING';
+      note = `Trend spadkowy, czekam na potwierdzenie. EMA spread=${Math.abs(e20-e50).toFixed(1)}`;
+    }
+  }
+  else {
+    note = `Brak wyraźnego trendu. EMA20=${e20?e20.toFixed(1):'?'} EMA50=${e50?e50.toFixed(1):'?'}`;
+  }
+
+  return {dir, note, e20, e50, atr: atrVal, mom, price};
+}
+
+async function fetchYahoo(ticker){
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1h&range=30d`;
+  const proxyUrl = PROXY + encodeURIComponent(url);
+  const resp = await fetch(proxyUrl);
+  const data = await resp.json();
+  const parsed = JSON.parse(data.contents);
+  const result = parsed.chart.result[0];
+  const closes = result.indicators.quote[0].close.filter(v=>v!==null);
+  const highs = result.indicators.quote[0].high.filter(v=>v!==null);
+  const lows = result.indicators.quote[0].low.filter(v=>v!==null);
+  const meta = result.meta;
+  return {closes, highs, lows, price: meta.regularMarketPrice, prevClose: meta.previousClose};
+}
+
+function renderSetup(key, price, dir, note, e20, e50, atrVal, mom){
+  const c=CFG[key];
+  const cap=parseFloat(document.getElementById('capital').value)||10000;
+  const risk=(cap*0.02).toFixed(0), reward=(cap*0.04).toFixed(0);
+  const isL=dir==='long';
+  const sl=(isL?price-c.sl:price+c.sl).toFixed(c.dec);
+  const tp=(isL?price+c.tp:price-c.tp).toFixed(c.dec);
+  const ep=price.toFixed(c.dec);
+
+  document.getElementById('body-'+key).innerHTML=`
+    <div class="sgrid">
+      <div class="sc"><div class="sc-l">Entry</div><div class="sc-v ve">${ep}</div></div>
+      <div class="sc"><div class="sc-l">SL</div><div class="sc-v vsl">${sl}</div></div>
+      <div class="sc"><div class="sc-l">TP</div><div class="sc-v vtp">${tp}</div></div>
+      <div class="sc"><div class="sc-l">Lot</div><div class="sc-v vlot">${c.lot}</div></div>
+    </div>
+    <div class="indicators">
+      <div class="ind"><div class="ind-l">EMA 20</div><div class="ind-v">${e20?e20.toFixed(1):'—'}</div></div>
+      <div class="ind"><div class="ind-l">EMA 50</div><div class="ind-v">${e50?e50.toFixed(1):'—'}</div></div>
+      <div class="ind"><div class="ind-l">ATR</div><div class="ind-v">${atrVal?atrVal.toFixed(1):'—'}</div></div>
+    </div>
+    <div class="inote">${note}</div>
+    <div class="iaction">XTB → ${c.name} → entry <strong>${ep}</strong> · SL <strong>${sl}</strong> · TP <strong>${tp}</strong> · lot <strong>${c.lot}</strong> → zatwierdź → zamknij</div>
+    <div class="imeta"><div class="mi">ryzyko: <span>${risk} PLN</span></div><div class="mi">cel: <span>+${reward} PLN</span></div><div class="mi">R:R <span>1:2</span></div></div>`;
+
+  addLog(c.name, dir, `@ ${ep} · SL ${sl} · TP ${tp}`);
+}
+
+function renderForming(key, price, note, e20, e50){
+  const c=CFG[key];
+  const ep=price.toFixed(c.dec);
+  document.getElementById('body-'+key).innerHTML=`
+    <div class="indicators">
+      <div class="ind"><div class="ind-l">EMA 20</div><div class="ind-v">${e20?e20.toFixed(1):'—'}</div></div>
+      <div class="ind"><div class="ind-l">EMA 50</div><div class="ind-v">${e50?e50.toFixed(1):'—'}</div></div>
+      <div class="ind"><div class="ind-l">Cena</div><div class="ind-v">${ep}</div></div>
+    </div>
+    <div class="forming-msg">Setup się formuje — czekaj na potwierdzenie.<br>${note}</div>`;
+  addLog(c.name, 'forming', `@ ${ep} — ${note}`);
+}
+
+async function scan(){
+  const t=waw();
+  if(!t.active){setTxt('Poza godzinami (9:00–24:00)');schedNext();return;}
+  setDot('wait'); setTxt('Skanowanie...');
+  ['us500','gold','eurusd'].forEach(id=>{setBadge(id,'scan','skan...');setCard(id,'scan');});
+
+  let sigs=0, forming=0;
+
+  for(const key of ['us500','gold','eurusd']){
+    const c=CFG[key];
+    try{
+      const {closes, highs, lows, price, prevClose} = await fetchYahoo(c.ticker);
+      
+      // Update price display
+      const dec = c.dec;
+      document.getElementById('price-'+key).textContent = price.toFixed(dec);
+      const chgPct = prevClose ? ((price-prevClose)/prevClose*100) : 0;
+      const chgEl = document.getElementById('chg-'+key);
+      chgEl.textContent = `${chgPct>=0?'+':''}${chgPct.toFixed(2)}%`;
+      chgEl.className = 'ichange '+(chgPct>=0?'up':'down');
+
+      // Analyze
+      const {dir, note, e20, e50, atr: atrVal, mom} = analyzeSignal(key, closes, highs, lows);
+
+      if(dir==='LONG'||dir==='SHORT'){
+        sigs++;
+        const dl=dir.toLowerCase();
+        setBadge(key,dl,dir);
+        setCard(key,dl);
+        renderSetup(key, price, dl, note, e20, e50, atrVal, mom);
+      } else if(dir==='FORMING'){
+        forming++;
+        setBadge(key,'forming','forming...');
+        setCard(key,'forming');
+        renderForming(key, price, note, e20, e50);
+      } else {
+        setBadge(key,'wait','brak setupu');
+        setCard(key,'');
+        document.getElementById('body-'+key).innerHTML='';
+      }
+    } catch(e){
+      setBadge(key,'wait','błąd danych');
+      setCard(key,'');
+      document.getElementById('body-'+key).innerHTML='';
+    }
+  }
+
+  const interval=parseInt(document.getElementById('scanmin').value)||5;
+  setDot(sigs>0?'live':forming>0?'wait':'');
+  if(sigs>0) setTxt(`${sigs} sygnał${sigs>1?'y':''} — wejdź do XTB teraz`);
+  else if(forming>0) setTxt(`${forming} setup formuje się — skan za ${interval} min`);
+  else setTxt(`Brak setupów — skan za ${interval} min`);
+
+  schedNext();
+}
+
+function schedNext(){if(!running)return;const i=parseInt(document.getElementById('scanmin').value)||5;nextIn=i*60;}
+
+function toggleMonitor(){
+  if(running){
+    running=false;nextIn=0;
+    document.getElementById('btnstart').className='bprimary';
+    document.getElementById('btnstart').textContent='Start monitoring ▶';
+    document.getElementById('nscan').textContent='';
+    setDot('');setTxt('Monitoring zatrzymany');
+  } else {
+    running=true;
+    document.getElementById('btnstart').className='bprimary stop';
+    document.getElementById('btnstart').textContent='Stop ◼';
+    if(Notification.permission==='default') Notification.requestPermission();
+    scan();
+  }
+}
+
+function scanNow(){nextIn=0;scan();}
+setInterval(tick,1000);tick();updateRisk();
+</script>
+</body>
+</html>
