@@ -2,8 +2,8 @@ name: Trading Monitor Scan
  
 on:
   schedule:
-    - cron: '*/5 7-22 * * 1-5'  # co 5 minut, 9:00-24:00 PL (UTC+2), pn-pt
-  workflow_dispatch:  # mozna uruchomic recznie
+    - cron: '*/5 7-22 * * 1-5'
+  workflow_dispatch:
  
 jobs:
   scan:
@@ -19,7 +19,7 @@ jobs:
           const TG_CHAT = process.env.TG_CHAT;
  
           const CFG = {
-            us500:  {name:'US500',   sym:'SPX',     sl:20,    tp:40,    dec:1},
+            us500:  {name:'US500',   sym:'SPY',     sl:1.5,   tp:3.0,   dec:2},
             gold:   {name:'GOLD',    sym:'XAU/USD', sl:25,    tp:50,    dec:1},
             eurusd: {name:'EUR/USD', sym:'EUR/USD', sl:0.0015,tp:0.0030,dec:5}
           };
@@ -29,7 +29,7 @@ jobs:
               https.get(url, res => {
                 let data = '';
                 res.on('data', chunk => data += chunk);
-                res.on('end', () => resolve(JSON.parse(data)));
+                res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { reject(e); } });
               }).on('error', reject);
             });
           }
@@ -76,18 +76,18 @@ jobs:
             const atrPct = atrVal ? (atrVal / price * 100) : 0;
             const trendUp = e20 > e50, trendDown = e20 < e50;
             const tsUp = trendUp ? (e20-e50) > (e20p-e50p) : (e50-e20) > (e50p-e20p);
-            const volOk = atrPct > 0.2;
+            const volOk = atrPct > 0.15;
             const aboveEMA = price > e20 && price > e50;
             const belowEMA = price < e20 && price < e50;
             let dir = 'NO_SIGNAL', note = '';
             if (trendUp && mom > 0 && aboveEMA) {
-              if (tsUp && volOk) { dir = 'LONG'; note = `EMA20=${e20.toFixed(1)} > EMA50=${e50.toFixed(1)}, momentum ↑, ATR=${atrVal.toFixed(1)}`; }
+              if (tsUp && volOk) { dir = 'LONG'; note = `EMA20=${e20.toFixed(2)} > EMA50=${e50.toFixed(2)}, momentum ↑`; }
               else { dir = 'FORMING'; note = `Trend wzrostowy, czekam na potwierdzenie`; }
             } else if (trendDown && mom < 0 && belowEMA) {
-              if (tsUp && volOk) { dir = 'SHORT'; note = `EMA20=${e20.toFixed(1)} < EMA50=${e50.toFixed(1)}, momentum ↓, ATR=${atrVal.toFixed(1)}`; }
+              if (tsUp && volOk) { dir = 'SHORT'; note = `EMA20=${e20.toFixed(2)} < EMA50=${e50.toFixed(2)}, momentum ↓`; }
               else { dir = 'FORMING'; note = `Trend spadkowy, czekam na potwierdzenie`; }
             } else {
-              note = `Brak trendu. EMA20=${e20?e20.toFixed(1):'?'} EMA50=${e50?e50.toFixed(1):'?'}`;
+              note = `Brak trendu. EMA20=${e20?e20.toFixed(2):'?'} EMA50=${e50?e50.toFixed(2):'?'}`;
             }
             return {dir, note, e20, e50, atrVal, price};
           }
@@ -98,18 +98,17 @@ jobs:
               try {
                 const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(c.sym)}&interval=1h&outputsize=500&apikey=${TD_KEY}`;
                 const d = await fetch(url);
-                if (d.status === 'error') throw new Error(d.message);
+                if (d.status === 'error') { console.log(c.name, d.message); continue; }
                 const values = d.values;
                 const closes = values.map(v => parseFloat(v.close)).reverse();
                 const highs = values.map(v => parseFloat(v.high)).reverse();
                 const lows = values.map(v => parseFloat(v.low)).reverse();
                 const price = parseFloat(values[0].close);
                 const {dir, note} = analyze(closes, highs, lows);
+                console.log(c.name, dir, price);
                 if (dir === 'LONG' || dir === 'SHORT') {
                   const isL = dir === 'LONG';
-                  const sl = (isL ? price - c.sl : price + c.sl).toFixed(c.dec);
-                  const tp = (isL ? price + c.tp : price - c.tp).toFixed(c.dec);
-                  messages.push(`⚡ <b>${dir} ${c.name}</b>\nCena TD: ${price.toFixed(c.dec)}\nSL: ${c.sl} pkt | TP: ${c.tp} pkt\n${note}\n\n➡️ Wpisz cenę z XTB i oblicz SL/TP`);
+                  messages.push(`⚡ <b>${dir} ${c.name}</b>\nCena ref: ${price.toFixed(c.dec)}\nSL: ${c.sl} pkt od ceny XTB\nTP: ${c.tp} pkt od ceny XTB\n${note}`);
                 } else if (dir === 'FORMING') {
                   messages.push(`⏳ <b>FORMING ${c.name}</b>\nCena: ${price.toFixed(c.dec)}\n${note}`);
                 }
@@ -118,7 +117,9 @@ jobs:
               }
             }
             if (messages.length > 0) {
-              await sendTelegram(messages.join('\n\n---\n\n'));
+              const header = `📊 Trading Monitor ${new Date().toLocaleTimeString('pl-PL',{timeZone:'Europe/Warsaw',hour:'2-digit',minute:'2-digit'})}\n\n`;
+              await sendTelegram(header + messages.join('\n\n---\n\n'));
+              console.log('Wysłano', messages.length, 'sygnałów');
             } else {
               console.log('Brak sygnałów');
             }
