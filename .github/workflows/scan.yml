@@ -13,23 +13,25 @@ jobs:
         run: |
           node << 'SCRIPT'
           const https = require('https');
+          const http = require('http');
  
           const TD_KEY = process.env.TD_KEY;
           const TG_TOKEN = process.env.TG_TOKEN;
           const TG_CHAT = process.env.TG_CHAT;
  
           const CFG = {
-            us500:  {name:'US500',   sym:'SPY',     sl:1.5,   tp:3.0,   dec:2},
-            gold:   {name:'GOLD',    sym:'XAU/USD', sl:25,    tp:50,    dec:1},
-            eurusd: {name:'EUR/USD', sym:'EUR/USD', sl:0.0015,tp:0.0030,dec:5}
+            us500:  {name:'US500',   source:'yahoo', sym:'^GSPC', sl:20,    tp:40,    dec:1},
+            gold:   {name:'GOLD',    source:'td',    sym:'XAU/USD',sl:25,   tp:50,    dec:1},
+            eurusd: {name:'EUR/USD', source:'td',    sym:'EUR/USD',sl:0.0015,tp:0.0030,dec:5}
           };
  
-          function fetch(url) {
+          function fetchUrl(url) {
             return new Promise((resolve, reject) => {
-              https.get(url, res => {
+              const mod = url.startsWith('https') ? https : http;
+              mod.get(url, {headers:{'User-Agent':'Mozilla/5.0'}}, res => {
                 let data = '';
                 res.on('data', chunk => data += chunk);
-                res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { reject(e); } });
+                res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { reject(new Error('parse error: '+data.slice(0,100))); } });
               }).on('error', reject);
             });
           }
@@ -81,34 +83,50 @@ jobs:
             const belowEMA = price < e20 && price < e50;
             let dir = 'NO_SIGNAL', note = '';
             if (trendUp && mom > 0 && aboveEMA) {
-              if (tsUp && volOk) { dir = 'LONG'; note = `EMA20=${e20.toFixed(2)} > EMA50=${e50.toFixed(2)}, momentum ↑`; }
+              if (tsUp && volOk) { dir = 'LONG'; note = `EMA20=${e20.toFixed(1)} > EMA50=${e50.toFixed(1)}, momentum ↑`; }
               else { dir = 'FORMING'; note = `Trend wzrostowy, czekam na potwierdzenie`; }
             } else if (trendDown && mom < 0 && belowEMA) {
-              if (tsUp && volOk) { dir = 'SHORT'; note = `EMA20=${e20.toFixed(2)} < EMA50=${e50.toFixed(2)}, momentum ↓`; }
+              if (tsUp && volOk) { dir = 'SHORT'; note = `EMA20=${e20.toFixed(1)} < EMA50=${e50.toFixed(1)}, momentum ↓`; }
               else { dir = 'FORMING'; note = `Trend spadkowy, czekam na potwierdzenie`; }
             } else {
-              note = `Brak trendu. EMA20=${e20?e20.toFixed(2):'?'} EMA50=${e50?e50.toFixed(2):'?'}`;
+              note = `Brak trendu. EMA20=${e20?e20.toFixed(1):'?'} EMA50=${e50?e50.toFixed(1):'?'}`;
             }
             return {dir, note, e20, e50, atrVal, price};
+          }
+ 
+          async function fetchYahoo(sym) {
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1h&range=30d`;
+            const d = await fetchUrl(url);
+            const res = d.chart.result[0];
+            const closes = res.indicators.quote[0].close.filter(v=>v!=null);
+            const highs = res.indicators.quote[0].high.filter(v=>v!=null);
+            const lows = res.indicators.quote[0].low.filter(v=>v!=null);
+            const price = res.meta.regularMarketPrice;
+            return {closes, highs, lows, price};
+          }
+ 
+          async function fetchTD(sym) {
+            const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=1h&outputsize=500&apikey=${TD_KEY}`;
+            const d = await fetchUrl(url);
+            if (d.status === 'error') throw new Error(d.message);
+            const values = d.values;
+            const closes = values.map(v => parseFloat(v.close)).reverse();
+            const highs = values.map(v => parseFloat(v.high)).reverse();
+            const lows = values.map(v => parseFloat(v.low)).reverse();
+            const price = parseFloat(values[0].close);
+            return {closes, highs, lows, price};
           }
  
           async function main() {
             const messages = [];
             for (const [key, c] of Object.entries(CFG)) {
               try {
-                const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(c.sym)}&interval=1h&outputsize=500&apikey=${TD_KEY}`;
-                const d = await fetch(url);
-                if (d.status === 'error') { console.log(c.name, d.message); continue; }
-                const values = d.values;
-                const closes = values.map(v => parseFloat(v.close)).reverse();
-                const highs = values.map(v => parseFloat(v.high)).reverse();
-                const lows = values.map(v => parseFloat(v.low)).reverse();
-                const price = parseFloat(values[0].close);
+                const data = c.source === 'yahoo' ? await fetchYahoo(c.sym) : await fetchTD(c.sym);
+                const {closes, highs, lows, price} = data;
                 const {dir, note} = analyze(closes, highs, lows);
-                console.log(c.name, dir, price);
+                console.log(c.name, dir, price.toFixed(c.dec));
                 if (dir === 'LONG' || dir === 'SHORT') {
-                  const isL = dir === 'LONG';
-                  messages.push(`⚡ <b>${dir} ${c.name}</b>\nCena ref: ${price.toFixed(c.dec)}\nSL: ${c.sl} pkt od ceny XTB\nTP: ${c.tp} pkt od ceny XTB\n${note}`);
+                  messages.push(`⚡ <b>${dir} ${c.name}</b>\nCena ref: ${price.toFixed(c.dec)}\nSL: ${c.sl} pkt | TP: ${c.tp} pkt\n${note}\n➡️ Wpisz cenę z XTB`);
                 } else if (dir === 'FORMING') {
                   messages.push(`⏳ <b>FORMING ${c.name}</b>\nCena: ${price.toFixed(c.dec)}\n${note}`);
                 }
@@ -117,9 +135,9 @@ jobs:
               }
             }
             if (messages.length > 0) {
-              const header = `📊 Trading Monitor ${new Date().toLocaleTimeString('pl-PL',{timeZone:'Europe/Warsaw',hour:'2-digit',minute:'2-digit'})}\n\n`;
-              await sendTelegram(header + messages.join('\n\n---\n\n'));
-              console.log('Wysłano', messages.length, 'sygnałów');
+              const t = new Date().toLocaleTimeString('pl-PL',{timeZone:'Europe/Warsaw',hour:'2-digit',minute:'2-digit'});
+              await sendTelegram(`📊 <b>Trading Monitor ${t}</b>\n\n` + messages.join('\n\n─────\n\n'));
+              console.log('Wysłano', messages.length, 'sygnałów na Telegram');
             } else {
               console.log('Brak sygnałów');
             }
