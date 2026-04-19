@@ -108,68 +108,68 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 </head>
 <body>
 <div class="wrap">
-
+ 
 <div class="top">
   <div><h1>Trading Monitor</h1><p>US500 · GOLD · EURUSD — 9:00–24:00</p></div>
   <div><div class="clock" id="clock">--:--</div><div class="day" id="daytxt">--</div></div>
 </div>
-
+ 
 <div class="news-block" id="news-block">NEWS BLOCK — ważne dane makro w ciągu 30 minut. Nie wchodzisz.</div>
-
+ 
 <div class="sbar">
   <div class="dot" id="dot"></div>
   <span class="stxt" id="stxt">Gotowy — kliknij Start</span>
   <span class="nscan" id="nscan"></span>
 </div>
-
+ 
 <div class="settings">
   <div class="scell"><div class="slbl">Kapitał (PLN)</div><input class="sinput" id="capital" type="number" value="10000" step="1000" oninput="updateRisk()"><div class="ssub" id="rsub">Ryzyko/trade: 200 PLN</div></div>
   <div class="scell"><div class="slbl">Skan co (min)</div><input class="sinput" id="scanmin" type="number" value="5" min="1" max="30"><div class="ssub">Zalecane: 5 min</div></div>
 </div>
-
+ 
 <div class="brow">
   <button class="bprimary" id="btnstart" onclick="toggleMonitor()">Start monitoring ▶</button>
   <button class="bsec" onclick="scanNow()">Skan teraz</button>
 </div>
-
+ 
 <div class="slabel">kalendarz makro — dziś</div>
 <div class="cal-section">
   <div id="cal-content"><div class="lempty">Ładowanie kalendarza...</div></div>
 </div>
-
+ 
 <div class="slabel">instrumenty</div>
 <div class="instruments">
   <div class="icard" id="card-us500"><div class="itop"><span class="iname">US500</span><div class="iright"><span class="ichange" id="chg-us500"></span><span class="iprice" id="price-us500">—</span><span class="badge b-wait" id="badge-us500">oczekiwanie</span></div></div><div class="ibody" id="body-us500"></div></div>
   <div class="icard" id="card-gold"><div class="itop"><span class="iname">GOLD</span><div class="iright"><span class="ichange" id="chg-gold"></span><span class="iprice" id="price-gold">—</span><span class="badge b-wait" id="badge-gold">oczekiwanie</span></div></div><div class="ibody" id="body-gold"></div></div>
   <div class="icard" id="card-eurusd"><div class="itop"><span class="iname">EUR/USD</span><div class="iright"><span class="ichange" id="chg-eurusd"></span><span class="iprice" id="price-eurusd">—</span><span class="badge b-wait" id="badge-eurusd">oczekiwanie</span></div></div><div class="ibody" id="body-eurusd"></div></div>
 </div>
-
+ 
 <div class="slabel">log sygnałów</div>
 <div class="logbox" id="logbox"><div class="lempty">Brak sygnałów — uruchom monitoring</div></div>
-
+ 
 <p class="disc">Nie jest poradą inwestycyjną. Używaj wyłącznie na koncie demo.<br>Decyzja i ryzyko należą wyłącznie do Ciebie.</p>
 </div>
-
+ 
 <script>
 const TD_KEY = 'f9612fdd5fd54eb69c261b03fe3a409f';
 const TG_TOKEN = '7980338718:AAFqiQTRwT99Qqql6SFNxgDQUBdJhk9dxtM';
 const TG_CHAT = '1599380596';
-
+ 
 const CFG = {
-  us500:  {name:'US500',   sym:'SPX',     sl:20,     tp:40,     dec:1, lot:0.05},
-  gold:   {name:'GOLD',    sym:'XAU/USD', sl:25,     tp:50,     dec:1, lot:0.05},
-  eurusd: {name:'EUR/USD', sym:'EUR/USD', sl:0.0015, tp:0.0030, dec:5, lot:0.05}
+  us500:  {name:'US500',   sym:'^GSPC',   sl:20,     tp:40,     dec:1, lot:0.05, source:'yahoo'},
+  gold:   {name:'GOLD',    sym:'XAU/USD', sl:25,     tp:50,     dec:1, lot:0.05, source:'td'},
+  eurusd: {name:'EUR/USD', sym:'EUR/USD', sl:0.0015, tp:0.0030, dec:5, lot:0.05, source:'td'}
 };
-
+ 
 let running=false, nextIn=0, logs=[], newsBlocked=false;
-
+ 
 function sendTelegram(msg){
   fetch('https://api.telegram.org/bot'+TG_TOKEN+'/sendMessage',{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({chat_id:TG_CHAT,text:msg,parse_mode:'HTML'})
   });
 }
-
+ 
 function waw(){
   const now=new Date(), tz='Europe/Warsaw';
   const g=t=>parseInt(new Intl.DateTimeFormat('pl-PL',{timeZone:tz,[t]:'2-digit',hour12:false}).format(now));
@@ -177,7 +177,7 @@ function waw(){
   const dow=new Intl.DateTimeFormat('pl-PL',{timeZone:tz,weekday:'long'}).format(now);
   return{h,m,total:h*60+m,str:`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`,active:h>=9&&h<24,dow};
 }
-
+ 
 function tick(){
   const t=waw();
   const el=document.getElementById('clock');
@@ -185,17 +185,17 @@ function tick(){
   document.getElementById('daytxt').textContent=t.dow;
   if(running&&nextIn>0){nextIn--;document.getElementById('nscan').textContent=`skan za ${nextIn}s`;if(nextIn<=0)scan();}
 }
-
+ 
 function updateRisk(){
   const cap=parseFloat(document.getElementById('capital').value)||10000;
   document.getElementById('rsub').textContent=`Ryzyko/trade: ${(cap*0.02).toFixed(0)} PLN`;
 }
-
+ 
 function setDot(t){document.getElementById('dot').className='dot'+(t==='live'?' live':t==='wait'?' wait':'');}
 function setTxt(t){document.getElementById('stxt').textContent=t;}
 function setBadge(id,cls,txt){const el=document.getElementById('badge-'+id);el.className='badge b-'+cls;el.innerHTML=cls==='scan'?`<span class="spinner"></span> ${txt}`:txt;}
 function setCard(id,sig){document.getElementById('card-'+id).className='icard'+(sig==='long'?' sig-long':sig==='short'?' sig-short':sig==='forming'?' forming':sig==='scan'?' scanning':sig==='block'?' blocked':'');}
-
+ 
 function addLog(instr,dir,detail){
   const t=waw();
   logs.unshift({time:t.str,instr,dir,detail});
@@ -210,13 +210,13 @@ function addLog(instr,dir,detail){
     sendTelegram('⏳ FORMING '+instr+'\n'+detail);
   }
 }
-
+ 
 function renderLog(){
   const b=document.getElementById('logbox');
   if(!logs.length){b.innerHTML='<div class="lempty">Brak sygnałów</div>';return;}
   b.innerHTML=logs.map(e=>`<div class="lrow"><span class="lt">${e.time}</span><span class="li">${e.instr}</span><span class="ld ${e.dir}">${e.dir==='forming'?'FORMING':e.dir.toUpperCase()}</span><span class="ldet">${e.detail}</span></div>`).join('');
 }
-
+ 
 function ema(data,period){
   if(data.length<period)return null;
   const k=2/(period+1);
@@ -224,7 +224,7 @@ function ema(data,period){
   for(let i=period;i<data.length;i++)e=data[i]*k+e*(1-k);
   return e;
 }
-
+ 
 function atr(highs,lows,closes,period=14){
   if(closes.length<period+1)return null;
   const trs=[];
@@ -232,7 +232,7 @@ function atr(highs,lows,closes,period=14){
     trs.push(Math.max(highs[i]-lows[i],Math.abs(highs[i]-closes[i-1]),Math.abs(lows[i]-closes[i-1])));
   return trs.slice(-period).reduce((a,b)=>a+b,0)/period;
 }
-
+ 
 function analyzeSignal(closes,highs,lows){
   if(!closes||closes.length<30)return{dir:'NO_SIGNAL',note:'za mało danych'};
   const e20=ema(closes,20), e50=ema(closes,50);
@@ -248,17 +248,30 @@ function analyzeSignal(closes,highs,lows){
   const belowEMA=price<e20&&price<e50;
   let dir='NO_SIGNAL', note='';
   if(trendUp&&mom>0&&aboveEMA){
-    if(tsUp&&volOk){dir='LONG';note=`Trend wzrostowy potwierdzony. EMA20=${e20.toFixed(1)} > EMA50=${e50.toFixed(1)}, momentum ↑`;}
-    else{dir='FORMING';note=`Trend wzrostowy, czekam na potwierdzenie. EMA20=${e20.toFixed(1)} EMA50=${e50.toFixed(1)}`;}
+    if(tsUp&&volOk){dir='LONG';note=`Trend wzrostowy potwierdzony. EMA20=${e20.toFixed(c.dec>1?c.dec:1)} > EMA50=${e50.toFixed(c.dec>1?c.dec:1)}, momentum ↑`;}
+    else{dir='FORMING';note=`Trend wzrostowy, czekam na potwierdzenie. EMA20=${e20.toFixed(c.dec>1?c.dec:1)} EMA50=${e50.toFixed(c.dec>1?c.dec:1)}`;}
   } else if(trendDown&&mom<0&&belowEMA){
-    if(tsUp&&volOk){dir='SHORT';note=`Trend spadkowy potwierdzony. EMA20=${e20.toFixed(1)} < EMA50=${e50.toFixed(1)}, momentum ↓`;}
-    else{dir='FORMING';note=`Trend spadkowy, czekam na potwierdzenie. EMA20=${e20.toFixed(1)} EMA50=${e50.toFixed(1)}`;}
+    if(tsUp&&volOk){dir='SHORT';note=`Trend spadkowy potwierdzony. EMA20=${e20.toFixed(c.dec>1?c.dec:1)} < EMA50=${e50.toFixed(c.dec>1?c.dec:1)}, momentum ↓`;}
+    else{dir='FORMING';note=`Trend spadkowy, czekam na potwierdzenie. EMA20=${e20.toFixed(c.dec>1?c.dec:1)} EMA50=${e50.toFixed(c.dec>1?c.dec:1)}`;}
   } else {
-    note=`Brak wyraźnego trendu. EMA20=${e20?e20.toFixed(1):'?'} EMA50=${e50?e50.toFixed(1):'?'}`;
+    note=`Brak wyraźnego trendu. EMA20=${e20?e20.toFixed(c.dec>1?c.dec:1):'?'} EMA50=${e50?e50.toFixed(c.dec>1?c.dec:1):'?'}`;
   }
   return{dir,note,e20,e50,atrVal,price};
 }
-
+ 
+async function fetchYahoo(sym){
+  const url=`https://corsproxy.io/?https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1h&range=30d`;
+  const r=await fetch(url);
+  const d=await r.json();
+  const res=d.chart.result[0];
+  const closes=res.indicators.quote[0].close.filter(v=>v!=null);
+  const highs=res.indicators.quote[0].high.filter(v=>v!=null);
+  const lows=res.indicators.quote[0].low.filter(v=>v!=null);
+  const price=res.meta.regularMarketPrice;
+  const prev=res.meta.previousClose||res.meta.chartPreviousClose;
+  return{closes,highs,lows,price,prev};
+}
+ 
 async function fetchTD(symbol){
   const url=`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1h&outputsize=500&apikey=${TD_KEY}`;
   const r=await fetch(url);
@@ -272,7 +285,7 @@ async function fetchTD(symbol){
   const prev=parseFloat(values[1].close);
   return{closes,highs,lows,price,prev};
 }
-
+ 
 function calcXTB(key,dir,inputId,resultId){
   const c=CFG[key];
   const price=parseFloat(document.getElementById(inputId).value);
@@ -282,7 +295,7 @@ function calcXTB(key,dir,inputId,resultId){
   const tp=(isL?price+c.tp:price-c.tp).toFixed(c.dec);
   document.getElementById(resultId).innerHTML=`SL <strong>${sl}</strong> · TP <strong>${tp}</strong> · lot <strong>${c.lot}</strong>`;
 }
-
+ 
 function renderSetup(key,price,dir,note,e20,e50,atrVal){
   const c=CFG[key];
   const cap=parseFloat(document.getElementById('capital').value)||10000;
@@ -292,7 +305,7 @@ function renderSetup(key,price,dir,note,e20,e50,atrVal){
   const tp=(isL?price+c.tp:price-c.tp).toFixed(c.dec);
   const ep=price.toFixed(c.dec);
   const inputId=`xtb-${key}`, resultId=`xtb-res-${key}`;
-
+ 
   document.getElementById('body-'+key).innerHTML=`
     <div class="sgrid">
       <div class="sc"><div class="sc-l">Kierunek</div><div class="sc-v ${dir==='long'?'vtp':'vsl'}">${dir.toUpperCase()}</div></div>
@@ -301,8 +314,8 @@ function renderSetup(key,price,dir,note,e20,e50,atrVal){
       <div class="sc"><div class="sc-l">Lot</div><div class="sc-v vlot">${c.lot}</div></div>
     </div>
     <div class="indicators">
-      <div class="ind"><div class="ind-l">EMA 20</div><div class="ind-v">${e20?e20.toFixed(1):'—'}</div></div>
-      <div class="ind"><div class="ind-l">EMA 50</div><div class="ind-v">${e50?e50.toFixed(1):'—'}</div></div>
+      <div class="ind"><div class="ind-l">EMA 20</div><div class="ind-v">${e20?e20.toFixed(c.dec>1?c.dec:1):'—'}</div></div>
+      <div class="ind"><div class="ind-l">EMA 50</div><div class="ind-v">${e50?e50.toFixed(c.dec>1?c.dec:1):'—'}</div></div>
       <div class="ind"><div class="ind-l">ATR 14</div><div class="ind-v">${atrVal?atrVal.toFixed(1):'—'}</div></div>
     </div>
     <div class="inote">${note}</div>
@@ -314,23 +327,23 @@ function renderSetup(key,price,dir,note,e20,e50,atrVal){
       </div>
     </div>
     <div class="imeta"><div class="mi">ryzyko: <span>${risk} PLN</span></div><div class="mi">cel: <span>+${reward} PLN</span></div><div class="mi">R:R <span>1:2</span></div></div>`;
-
+ 
   addLog(c.name,dir,`kierunek ${dir.toUpperCase()} · SL ${c.sl}pkt · TP ${c.tp}pkt`);
 }
-
+ 
 function renderForming(key,price,note,e20,e50){
   const c=CFG[key];
   const ep=price.toFixed(c.dec);
   document.getElementById('body-'+key).innerHTML=`
     <div class="indicators">
-      <div class="ind"><div class="ind-l">EMA 20</div><div class="ind-v">${e20?e20.toFixed(1):'—'}</div></div>
-      <div class="ind"><div class="ind-l">EMA 50</div><div class="ind-v">${e50?e50.toFixed(1):'—'}</div></div>
+      <div class="ind"><div class="ind-l">EMA 20</div><div class="ind-v">${e20?e20.toFixed(c.dec>1?c.dec:1):'—'}</div></div>
+      <div class="ind"><div class="ind-l">EMA 50</div><div class="ind-v">${e50?e50.toFixed(c.dec>1?c.dec:1):'—'}</div></div>
       <div class="ind"><div class="ind-l">Cena TD</div><div class="ind-v">${ep}</div></div>
     </div>
     <div class="forming-msg">Setup się formuje — czekaj na potwierdzenie.<br>${note}</div>`;
   addLog(c.name,'forming',`@ ${ep} — ${note}`);
 }
-
+ 
 async function loadCalendar(){
   const t=waw();
   try{
@@ -344,14 +357,14 @@ async function loadCalendar(){
       const ds=d.toISOString().split('T')[0];
       return ds===todayStr && (e.impact==='High'||e.impact==='Medium') && e.country==='USD';
     });
-
+ 
     newsBlocked=false;
     if(todayEvents.length===0){
       document.getElementById('cal-content').innerHTML='<div class="cal-event"><span class="cal-name" style="color:var(--green)">Brak ważnych danych USD dziś</span></div>';
       document.getElementById('news-block').classList.remove('visible');
       return;
     }
-
+ 
     let html='';
     todayEvents.forEach(ev=>{
       const evTime=new Date(ev.date);
@@ -364,7 +377,7 @@ async function loadCalendar(){
       if(diff>=-30&&diff<=30) newsBlocked=true;
       html+=`<div class="cal-event"><span class="cal-time">${timeStr}</span><span class="cal-name">${ev.title}</span><span class="cal-imp ${impCls}">${ev.impact}</span></div>`;
     });
-
+ 
     document.getElementById('cal-content').innerHTML=html;
     if(newsBlocked){
       document.getElementById('news-block').classList.add('visible');
@@ -376,27 +389,27 @@ async function loadCalendar(){
     document.getElementById('cal-content').innerHTML='<div class="lempty">Sprawdź ręcznie: investing.com/economic-calendar</div>';
   }
 }
-
+ 
 async function scan(){
   const t=waw();
   await loadCalendar();
-
+ 
   if(!t.active){setTxt('Poza godzinami (9:00–24:00)');schedNext();return;}
   if(newsBlocked){
     setDot('');setTxt('NEWS BLOCK — nie wchodzisz teraz');
     ['us500','gold','eurusd'].forEach(id=>{setBadge(id,'block','news block');setCard(id,'block');});
     schedNext();return;
   }
-
+ 
   setDot('wait');setTxt('Skanowanie...');
   ['us500','gold','eurusd'].forEach(id=>{setBadge(id,'scan','skan...');setCard(id,'scan');});
-
+ 
   let sigs=0, forming=0;
-
+ 
   for(const key of ['us500','gold','eurusd']){
     const c=CFG[key];
     try{
-      const{closes,highs,lows,price,prev}=await fetchTD(c.sym);
+      const{closes,highs,lows,price,prev}=c.source==='yahoo'?await fetchYahoo(c.sym):await fetchTD(c.sym);
       document.getElementById('price-'+key).textContent=price.toFixed(c.dec);
       const chg=prev?((price-prev)/prev*100):0;
       const cel=document.getElementById('chg-'+key);
@@ -419,18 +432,18 @@ async function scan(){
       document.getElementById('body-'+key).innerHTML='';
     }
   }
-
+ 
   const interval=parseInt(document.getElementById('scanmin').value)||5;
   setDot(sigs>0?'live':forming>0?'wait':'');
   if(sigs>0)setTxt(`${sigs} sygnał${sigs>1?'y':''} — wpisz cenę z XTB`);
   else if(forming>0)setTxt(`${forming} setup formuje się — skan za ${interval} min`);
   else setTxt(`Brak setupów — skan za ${interval} min`);
-
+ 
   schedNext();
 }
-
+ 
 function schedNext(){if(!running)return;const i=parseInt(document.getElementById('scanmin').value)||5;nextIn=i*60;}
-
+ 
 function toggleMonitor(){
   if(running){
     running=false;nextIn=0;
@@ -446,7 +459,7 @@ function toggleMonitor(){
     scan();
   }
 }
-
+ 
 function scanNow(){nextIn=0;scan();}
 loadCalendar();
 setInterval(tick,1000);tick();updateRisk();
