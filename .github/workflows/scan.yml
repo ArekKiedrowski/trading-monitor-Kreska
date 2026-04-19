@@ -1,0 +1,132 @@
+name: Trading Monitor Scan
+ 
+on:
+  schedule:
+    - cron: '*/5 7-22 * * 1-5'  # co 5 minut, 9:00-24:00 PL (UTC+2), pn-pt
+  workflow_dispatch:  # mozna uruchomic recznie
+ 
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scan markets and send Telegram
+        run: |
+          node << 'SCRIPT'
+          const https = require('https');
+ 
+          const TD_KEY = process.env.TD_KEY;
+          const TG_TOKEN = process.env.TG_TOKEN;
+          const TG_CHAT = process.env.TG_CHAT;
+ 
+          const CFG = {
+            us500:  {name:'US500',   sym:'SPX',     sl:20,    tp:40,    dec:1},
+            gold:   {name:'GOLD',    sym:'XAU/USD', sl:25,    tp:50,    dec:1},
+            eurusd: {name:'EUR/USD', sym:'EUR/USD', sl:0.0015,tp:0.0030,dec:5}
+          };
+ 
+          function fetch(url) {
+            return new Promise((resolve, reject) => {
+              https.get(url, res => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => resolve(JSON.parse(data)));
+              }).on('error', reject);
+            });
+          }
+ 
+          function sendTelegram(msg) {
+            const body = JSON.stringify({chat_id: TG_CHAT, text: msg, parse_mode: 'HTML'});
+            const options = {
+              hostname: 'api.telegram.org',
+              path: `/bot${TG_TOKEN}/sendMessage`,
+              method: 'POST',
+              headers: {'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body)}
+            };
+            return new Promise((resolve) => {
+              const req = https.request(options, res => { res.resume(); resolve(); });
+              req.on('error', () => resolve());
+              req.write(body);
+              req.end();
+            });
+          }
+ 
+          function ema(data, period) {
+            if (data.length < period) return null;
+            const k = 2 / (period + 1);
+            let e = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
+            for (let i = period; i < data.length; i++) e = data[i] * k + e * (1 - k);
+            return e;
+          }
+ 
+          function atr(highs, lows, closes, period = 14) {
+            if (closes.length < period + 1) return null;
+            const trs = [];
+            for (let i = 1; i < closes.length; i++)
+              trs.push(Math.max(highs[i]-lows[i], Math.abs(highs[i]-closes[i-1]), Math.abs(lows[i]-closes[i-1])));
+            return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
+          }
+ 
+          function analyze(closes, highs, lows) {
+            if (!closes || closes.length < 30) return {dir: 'NO_SIGNAL', note: 'za mało danych'};
+            const e20 = ema(closes, 20), e50 = ema(closes, 50);
+            const e20p = ema(closes.slice(0, -5), 20), e50p = ema(closes.slice(0, -5), 50);
+            const atrVal = atr(highs, lows, closes, 14);
+            const price = closes[closes.length - 1];
+            const mom = price - closes[closes.length - 11];
+            const atrPct = atrVal ? (atrVal / price * 100) : 0;
+            const trendUp = e20 > e50, trendDown = e20 < e50;
+            const tsUp = trendUp ? (e20-e50) > (e20p-e50p) : (e50-e20) > (e50p-e20p);
+            const volOk = atrPct > 0.2;
+            const aboveEMA = price > e20 && price > e50;
+            const belowEMA = price < e20 && price < e50;
+            let dir = 'NO_SIGNAL', note = '';
+            if (trendUp && mom > 0 && aboveEMA) {
+              if (tsUp && volOk) { dir = 'LONG'; note = `EMA20=${e20.toFixed(1)} > EMA50=${e50.toFixed(1)}, momentum ↑, ATR=${atrVal.toFixed(1)}`; }
+              else { dir = 'FORMING'; note = `Trend wzrostowy, czekam na potwierdzenie`; }
+            } else if (trendDown && mom < 0 && belowEMA) {
+              if (tsUp && volOk) { dir = 'SHORT'; note = `EMA20=${e20.toFixed(1)} < EMA50=${e50.toFixed(1)}, momentum ↓, ATR=${atrVal.toFixed(1)}`; }
+              else { dir = 'FORMING'; note = `Trend spadkowy, czekam na potwierdzenie`; }
+            } else {
+              note = `Brak trendu. EMA20=${e20?e20.toFixed(1):'?'} EMA50=${e50?e50.toFixed(1):'?'}`;
+            }
+            return {dir, note, e20, e50, atrVal, price};
+          }
+ 
+          async function main() {
+            const messages = [];
+            for (const [key, c] of Object.entries(CFG)) {
+              try {
+                const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(c.sym)}&interval=1h&outputsize=500&apikey=${TD_KEY}`;
+                const d = await fetch(url);
+                if (d.status === 'error') throw new Error(d.message);
+                const values = d.values;
+                const closes = values.map(v => parseFloat(v.close)).reverse();
+                const highs = values.map(v => parseFloat(v.high)).reverse();
+                const lows = values.map(v => parseFloat(v.low)).reverse();
+                const price = parseFloat(values[0].close);
+                const {dir, note} = analyze(closes, highs, lows);
+                if (dir === 'LONG' || dir === 'SHORT') {
+                  const isL = dir === 'LONG';
+                  const sl = (isL ? price - c.sl : price + c.sl).toFixed(c.dec);
+                  const tp = (isL ? price + c.tp : price - c.tp).toFixed(c.dec);
+                  messages.push(`⚡ <b>${dir} ${c.name}</b>\nCena TD: ${price.toFixed(c.dec)}\nSL: ${c.sl} pkt | TP: ${c.tp} pkt\n${note}\n\n➡️ Wpisz cenę z XTB i oblicz SL/TP`);
+                } else if (dir === 'FORMING') {
+                  messages.push(`⏳ <b>FORMING ${c.name}</b>\nCena: ${price.toFixed(c.dec)}\n${note}`);
+                }
+              } catch(e) {
+                console.error(c.name, e.message);
+              }
+            }
+            if (messages.length > 0) {
+              await sendTelegram(messages.join('\n\n---\n\n'));
+            } else {
+              console.log('Brak sygnałów');
+            }
+          }
+ 
+          main().catch(console.error);
+          SCRIPT
+        env:
+          TD_KEY: ${{ secrets.TD_KEY }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT: ${{ secrets.TG_CHAT }}
