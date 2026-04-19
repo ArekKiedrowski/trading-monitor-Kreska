@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="pl">
 <head>
@@ -147,9 +146,18 @@ function setTxt(t){document.getElementById('stxt').textContent=t;}
 function setBadge(id,cls,txt){const el=document.getElementById('badge-'+id);el.className='badge b-'+cls;el.innerHTML=cls==='scan'?`<span class="spinner"></span> ${txt}`:txt;}
 function setCard(id,sig){document.getElementById('card-'+id).className='icard'+(sig==='long'?' sig-long':sig==='short'?' sig-short':sig==='forming'?' forming':sig==='scan'?' scanning':'');}
 
+function sendTelegram(msg){
+  const token="7980338718:AAFqiQTRwT99Qqql6SFNxgDQUBdJhk9dxtM";
+  const chatId="1599380596";
+  fetch("https://api.telegram.org/bot"+token+"/sendMessage",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({chat_id:chatId,text:msg,parse_mode:"HTML"})});
+}
+
 function addLog(instr,dir,detail){
   const t=waw();logs.unshift({time:t.str,instr,dir,detail});
   if(logs.length>30)logs.pop();renderLog();
+  if(dir==='long'||dir==='short'){
+    sendTelegram("⚡ "+dir.toUpperCase()+" "+instr+"\n"+detail+"\nOtwórz XTB teraz!");
+  }
   if(Notification.permission==='granted'&&(dir==='long'||dir==='short'))
     new Notification(`${dir.toUpperCase()} ${instr}`,{body:detail,requireInteraction:true});
 }
@@ -250,6 +258,7 @@ function renderForming(key,price,note,e20,e50){
       <div class="ind"><div class="ind-l">Cena</div><div class="ind-v">${ep}</div></div>
     </div>
     <div class="forming-msg">Setup się formuje — czekaj na potwierdzenie.<br>${note}</div>`;
+  sendTelegram('⏳ FORMING '+c.name+'\nSetup się formuje @ '+ep+'\n'+note);
   addLog(c.name,'forming',`@ ${ep} — ${note}`);
 }
 
