@@ -1,4 +1,5 @@
-<!DOCTYPE html> 
+
+<!DOCTYPE html>
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
@@ -88,60 +89,46 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 </head>
 <body>
 <div class="wrap">
-
 <div class="top">
-  <div>
-    <h1>Trading Monitor <span class="free-badge">free</span></h1>
-    <p>US500 · GOLD · EURUSD — 9:00–24:00 · analiza techniczna</p>
-  </div>
+  <div><h1>Trading Monitor <span class="free-badge">free</span></h1><p>US500 · GOLD · EURUSD — 9:00–24:00</p></div>
   <div><div class="clock" id="clock">--:--</div><div class="day" id="daytxt">--</div></div>
 </div>
-
 <div class="sbar">
   <div class="dot" id="dot"></div>
   <span class="stxt" id="stxt">Gotowy — kliknij Start</span>
   <span class="nscan" id="nscan"></span>
 </div>
-
 <div class="settings">
   <div class="scell"><div class="slbl">Kapitał (PLN)</div><input class="sinput" id="capital" type="number" value="10000" step="1000" oninput="updateRisk()"><div class="ssub" id="rsub">Ryzyko/trade: 200 PLN</div></div>
   <div class="scell"><div class="slbl">Skan co (min)</div><input class="sinput" id="scanmin" type="number" value="5" min="1" max="30"><div class="ssub">Zalecane: 5 min</div></div>
 </div>
-
 <div class="brow">
   <button class="bprimary" id="btnstart" onclick="toggleMonitor()">Start monitoring ▶</button>
   <button class="bsec" onclick="scanNow()">Skan teraz</button>
 </div>
-
 <div class="slabel">instrumenty</div>
 <div class="instruments">
   <div class="icard" id="card-us500"><div class="itop"><span class="iname">US500</span><div class="iright"><span class="ichange" id="chg-us500"></span><span class="iprice" id="price-us500">—</span><span class="badge b-wait" id="badge-us500">oczekiwanie</span></div></div><div class="ibody" id="body-us500"></div></div>
   <div class="icard" id="card-gold"><div class="itop"><span class="iname">GOLD</span><div class="iright"><span class="ichange" id="chg-gold"></span><span class="iprice" id="price-gold">—</span><span class="badge b-wait" id="badge-gold">oczekiwanie</span></div></div><div class="ibody" id="body-gold"></div></div>
   <div class="icard" id="card-eurusd"><div class="itop"><span class="iname">EUR/USD</span><div class="iright"><span class="ichange" id="chg-eurusd"></span><span class="iprice" id="price-eurusd">—</span><span class="badge b-wait" id="badge-eurusd">oczekiwanie</span></div></div><div class="ibody" id="body-eurusd"></div></div>
 </div>
-
 <div class="slabel">log sygnałów</div>
 <div class="logbox" id="logbox"><div class="lempty">Brak sygnałów — uruchom monitoring</div></div>
-
 <p class="disc">Nie jest poradą inwestycyjną. Używaj wyłącznie na koncie demo.<br>Decyzja i ryzyko należą wyłącznie do Ciebie.</p>
 </div>
-
 <script>
-const CFG = {
-  us500:  {name:'US500',   ticker:'^GSPC', sl:20,     tp:40,     dec:1, lot:0.05},
-  gold:   {name:'GOLD',    ticker:'GC=F',  sl:25,     tp:50,     dec:1, lot:0.05},
-  eurusd: {name:'EUR/USD', ticker:'EURUSD=X', sl:0.0015, tp:0.0030, dec:5, lot:0.05}
+const CFG={
+  us500:{name:'US500',id:'SPY',sl:20,tp:40,dec:2,lot:0.05},
+  gold:{name:'GOLD',id:'GLD',sl:2,tp:4,dec:2,lot:0.05},
+  eurusd:{name:'EUR/USD',id:'FXE',sl:0.0015,tp:0.0030,dec:4,lot:0.05}
 };
 
-const PROXY = 'https://api.allorigins.win/get?url=';
-
-let running=false, nextIn=0, logs=[];
-let history = {us500:[], gold:[], eurusd:[]};
+let running=false,nextIn=0,logs=[];
 
 function waw(){
-  const now=new Date(), tz='Europe/Warsaw';
+  const now=new Date(),tz='Europe/Warsaw';
   const g=t=>parseInt(new Intl.DateTimeFormat('pl-PL',{timeZone:tz,[t]:'2-digit',hour12:false}).format(now));
-  const h=g('hour'), m=g('minute');
+  const h=g('hour'),m=g('minute');
   const dow=new Intl.DateTimeFormat('pl-PL',{timeZone:tz,weekday:'long'}).format(now);
   return{h,m,str:`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`,active:h>=9&&h<24,dow};
 }
@@ -149,35 +136,22 @@ function waw(){
 function tick(){
   const t=waw();
   const el=document.getElementById('clock');
-  el.textContent=t.str; el.className='clock'+(t.active?' on':'');
+  el.textContent=t.str;el.className='clock'+(t.active?' on':'');
   document.getElementById('daytxt').textContent=t.dow;
   if(running&&nextIn>0){nextIn--;document.getElementById('nscan').textContent=`skan za ${nextIn}s`;if(nextIn<=0)scan();}
 }
 
-function updateRisk(){
-  const cap=parseFloat(document.getElementById('capital').value)||10000;
-  document.getElementById('rsub').textContent=`Ryzyko/trade: ${(cap*0.02).toFixed(0)} PLN`;
-}
-
+function updateRisk(){const cap=parseFloat(document.getElementById('capital').value)||10000;document.getElementById('rsub').textContent=`Ryzyko/trade: ${(cap*0.02).toFixed(0)} PLN`;}
 function setDot(t){document.getElementById('dot').className='dot'+(t==='live'?' live':t==='wait'?' wait':'');}
 function setTxt(t){document.getElementById('stxt').textContent=t;}
-function setBadge(id,cls,txt){
-  const el=document.getElementById('badge-'+id);
-  el.className='badge b-'+cls;
-  el.innerHTML=cls==='scan'?`<span class="spinner"></span> ${txt}`:txt;
-}
-function setCard(id,sig){
-  document.getElementById('card-'+id).className='icard'+(sig==='long'?' sig-long':sig==='short'?' sig-short':sig==='forming'?' forming':sig==='scan'?' scanning':'');
-}
+function setBadge(id,cls,txt){const el=document.getElementById('badge-'+id);el.className='badge b-'+cls;el.innerHTML=cls==='scan'?`<span class="spinner"></span> ${txt}`:txt;}
+function setCard(id,sig){document.getElementById('card-'+id).className='icard'+(sig==='long'?' sig-long':sig==='short'?' sig-short':sig==='forming'?' forming':sig==='scan'?' scanning':'');}
 
 function addLog(instr,dir,detail){
-  const t=waw();
-  logs.unshift({time:t.str,instr,dir,detail});
-  if(logs.length>30)logs.pop();
-  renderLog();
-  if(Notification.permission==='granted' && (dir==='long'||dir==='short')){
+  const t=waw();logs.unshift({time:t.str,instr,dir,detail});
+  if(logs.length>30)logs.pop();renderLog();
+  if(Notification.permission==='granted'&&(dir==='long'||dir==='short'))
     new Notification(`${dir.toUpperCase()} ${instr}`,{body:detail,requireInteraction:true});
-  }
 }
 
 function renderLog(){
@@ -186,115 +160,69 @@ function renderLog(){
   b.innerHTML=logs.map(e=>`<div class="lrow"><span class="lt">${e.time}</span><span class="li">${e.instr}</span><span class="ld ${e.dir}">${e.dir==='forming'?'FORMING':e.dir.toUpperCase()}</span><span class="ldet">${e.detail}</span></div>`).join('');
 }
 
-// EMA calculation
-function ema(data, period){
-  if(data.length < period) return null;
-  const k = 2/(period+1);
-  let e = data.slice(0,period).reduce((a,b)=>a+b,0)/period;
-  for(let i=period;i<data.length;i++) e = data[i]*k + e*(1-k);
+function ema(data,period){
+  if(data.length<period)return null;
+  const k=2/(period+1);
+  let e=data.slice(0,period).reduce((a,b)=>a+b,0)/period;
+  for(let i=period;i<data.length;i++)e=data[i]*k+e*(1-k);
   return e;
 }
 
-// ATR calculation
-function atr(highs, lows, closes, period=14){
-  if(closes.length < period+1) return null;
-  const trs = [];
-  for(let i=1;i<closes.length;i++){
-    trs.push(Math.max(highs[i]-lows[i], Math.abs(highs[i]-closes[i-1]), Math.abs(lows[i]-closes[i-1])));
-  }
+function atr(highs,lows,closes,period=14){
+  if(closes.length<period+1)return null;
+  const trs=[];
+  for(let i=1;i<closes.length;i++)
+    trs.push(Math.max(highs[i]-lows[i],Math.abs(highs[i]-closes[i-1]),Math.abs(lows[i]-closes[i-1])));
   return trs.slice(-period).reduce((a,b)=>a+b,0)/period;
 }
 
-// Momentum
-function momentum(data, period=10){
-  if(data.length < period) return 0;
-  return data[data.length-1] - data[data.length-1-period];
+function analyzeSignal(closes,highs,lows){
+  if(!closes||closes.length<30)return{dir:'NO_SIGNAL',note:'za mało danych'};
+  const e20=ema(closes,20),e50=ema(closes,50);
+  const e20p=ema(closes.slice(0,-5),20),e50p=ema(closes.slice(0,-5),50);
+  const atrVal=atr(highs,lows,closes,14);
+  const price=closes[closes.length-1];
+  const mom=closes[closes.length-1]-closes[closes.length-11];
+  const atrPct=atrVal?(atrVal/price*100):0;
+  const trendUp=e20>e50,trendDown=e20<e50;
+  const tsUp=trendUp?(e20-e50)>(e20p-e50p):(e50-e20)>(e50p-e20p);
+  const volOk=atrPct>0.2;
+  const aboveEMA=price>e20&&price>e50;
+  const belowEMA=price<e20&&price<e50;
+  let dir='NO_SIGNAL',note='';
+  if(trendUp&&mom>0&&aboveEMA){
+    if(tsUp&&volOk){dir='LONG';note=`EMA20=${e20.toFixed(2)} > EMA50=${e50.toFixed(2)}, momentum ↑`;}
+    else{dir='FORMING';note=`Trend wzrostowy, czekam na potwierdzenie`;}
+  } else if(trendDown&&mom<0&&belowEMA){
+    if(tsUp&&volOk){dir='SHORT';note=`EMA20=${e20.toFixed(2)} < EMA50=${e50.toFixed(2)}, momentum ↓`;}
+    else{dir='FORMING';note=`Trend spadkowy, czekam na potwierdzenie`;}
+  } else {
+    note=`Brak trendu. EMA20=${e20?e20.toFixed(2):'?'} EMA50=${e50?e50.toFixed(2):'?'}`;
+  }
+  return{dir,note,e20,e50,atrVal,price};
 }
 
-function analyzeSignal(key, prices, highs, lows){
-  if(!prices || prices.length < 30) return {dir:'NO_SIGNAL', note:'za mało danych'};
-  
-  const closes = prices;
-  const e20 = ema(closes, 20);
-  const e50 = ema(closes, 50);
-  const e20_prev = ema(closes.slice(0,-5), 20);
-  const e50_prev = ema(closes.slice(0,-5), 50);
-  const atrVal = atr(highs, lows, closes, 14);
-  const mom = momentum(closes, 10);
-  const price = closes[closes.length-1];
-  const atrMult = atrVal ? (atrVal / price * 100) : 0;
-
-  // Trend direction
-  const trendUp = e20 > e50;
-  const trendDown = e20 < e50;
-  
-  // Trend strengthening
-  const trendStrengthening = trendUp ? (e20 - e50) > (e20_prev - e50_prev) : (e50 - e20) > (e50_prev - e20_prev);
-  
-  // Momentum aligned with trend
-  const momUp = mom > 0;
-  const momDown = mom < 0;
-  
-  // Volatility expanding (ATR above average)
-  const volExpanding = atrMult > 0.3;
-
-  // Price above/below EMAs
-  const priceAboveEMAs = price > e20 && price > e50;
-  const priceBelowEMAs = price < e20 && price < e50;
-
-  let dir = 'NO_SIGNAL';
-  let note = '';
-
-  // LONG signal: trend up + momentum up + price above EMAs
-  if(trendUp && momUp && priceAboveEMAs){
-    if(trendStrengthening && volExpanding){
-      dir = 'LONG';
-      note = `EMA20>${e20.toFixed(1)} > EMA50>${e50.toFixed(1)}, momentum ↑, ATR=${atrVal?atrVal.toFixed(1):'?'}`;
-    } else {
-      dir = 'FORMING';
-      note = `Trend wzrostowy, czekam na potwierdzenie. EMA spread=${Math.abs(e20-e50).toFixed(1)}`;
-    }
-  }
-  // SHORT signal: trend down + momentum down + price below EMAs
-  else if(trendDown && momDown && priceBelowEMAs){
-    if(trendStrengthening && volExpanding){
-      dir = 'SHORT';
-      note = `EMA20=${e20.toFixed(1)} < EMA50=${e50.toFixed(1)}, momentum ↓, ATR=${atrVal?atrVal.toFixed(1):'?'}`;
-    } else {
-      dir = 'FORMING';
-      note = `Trend spadkowy, czekam na potwierdzenie. EMA spread=${Math.abs(e20-e50).toFixed(1)}`;
-    }
-  }
-  else {
-    note = `Brak wyraźnego trendu. EMA20=${e20?e20.toFixed(1):'?'} EMA50=${e50?e50.toFixed(1):'?'}`;
-  }
-
-  return {dir, note, e20, e50, atr: atrVal, mom, price};
+async function fetchData(symbol){
+  const url=`https://corsproxy.io/?https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1h&range=30d`;
+  const r=await fetch(url);
+  const d=await r.json();
+  const res=d.chart.result[0];
+  const closes=res.indicators.quote[0].close.filter(v=>v!=null);
+  const highs=res.indicators.quote[0].high.filter(v=>v!=null);
+  const lows=res.indicators.quote[0].low.filter(v=>v!=null);
+  const price=res.meta.regularMarketPrice;
+  const prev=res.meta.previousClose||res.meta.chartPreviousClose;
+  return{closes,highs,lows,price,prev};
 }
 
-async function fetchYahoo(ticker){
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1h&range=30d`;
-  const proxyUrl = PROXY + encodeURIComponent(url);
-  const resp = await fetch(proxyUrl);
-  const data = await resp.json();
-  const parsed = JSON.parse(data.contents);
-  const result = parsed.chart.result[0];
-  const closes = result.indicators.quote[0].close.filter(v=>v!==null);
-  const highs = result.indicators.quote[0].high.filter(v=>v!==null);
-  const lows = result.indicators.quote[0].low.filter(v=>v!==null);
-  const meta = result.meta;
-  return {closes, highs, lows, price: meta.regularMarketPrice, prevClose: meta.previousClose};
-}
-
-function renderSetup(key, price, dir, note, e20, e50, atrVal, mom){
+function renderSetup(key,price,dir,note,e20,e50,atrVal){
   const c=CFG[key];
   const cap=parseFloat(document.getElementById('capital').value)||10000;
-  const risk=(cap*0.02).toFixed(0), reward=(cap*0.04).toFixed(0);
+  const risk=(cap*0.02).toFixed(0),reward=(cap*0.04).toFixed(0);
   const isL=dir==='long';
   const sl=(isL?price-c.sl:price+c.sl).toFixed(c.dec);
   const tp=(isL?price+c.tp:price-c.tp).toFixed(c.dec);
   const ep=price.toFixed(c.dec);
-
   document.getElementById('body-'+key).innerHTML=`
     <div class="sgrid">
       <div class="sc"><div class="sc-l">Entry</div><div class="sc-v ve">${ep}</div></div>
@@ -303,104 +231,75 @@ function renderSetup(key, price, dir, note, e20, e50, atrVal, mom){
       <div class="sc"><div class="sc-l">Lot</div><div class="sc-v vlot">${c.lot}</div></div>
     </div>
     <div class="indicators">
-      <div class="ind"><div class="ind-l">EMA 20</div><div class="ind-v">${e20?e20.toFixed(1):'—'}</div></div>
-      <div class="ind"><div class="ind-l">EMA 50</div><div class="ind-v">${e50?e50.toFixed(1):'—'}</div></div>
-      <div class="ind"><div class="ind-l">ATR</div><div class="ind-v">${atrVal?atrVal.toFixed(1):'—'}</div></div>
+      <div class="ind"><div class="ind-l">EMA 20</div><div class="ind-v">${e20?e20.toFixed(2):'—'}</div></div>
+      <div class="ind"><div class="ind-l">EMA 50</div><div class="ind-v">${e50?e50.toFixed(2):'—'}</div></div>
+      <div class="ind"><div class="ind-l">ATR</div><div class="ind-v">${atrVal?atrVal.toFixed(2):'—'}</div></div>
     </div>
     <div class="inote">${note}</div>
     <div class="iaction">XTB → ${c.name} → entry <strong>${ep}</strong> · SL <strong>${sl}</strong> · TP <strong>${tp}</strong> · lot <strong>${c.lot}</strong> → zatwierdź → zamknij</div>
     <div class="imeta"><div class="mi">ryzyko: <span>${risk} PLN</span></div><div class="mi">cel: <span>+${reward} PLN</span></div><div class="mi">R:R <span>1:2</span></div></div>`;
-
-  addLog(c.name, dir, `@ ${ep} · SL ${sl} · TP ${tp}`);
+  addLog(c.name,dir,`@ ${ep} · SL ${sl} · TP ${tp}`);
 }
 
-function renderForming(key, price, note, e20, e50){
-  const c=CFG[key];
-  const ep=price.toFixed(c.dec);
+function renderForming(key,price,note,e20,e50){
+  const c=CFG[key];const ep=price.toFixed(c.dec);
   document.getElementById('body-'+key).innerHTML=`
     <div class="indicators">
-      <div class="ind"><div class="ind-l">EMA 20</div><div class="ind-v">${e20?e20.toFixed(1):'—'}</div></div>
-      <div class="ind"><div class="ind-l">EMA 50</div><div class="ind-v">${e50?e50.toFixed(1):'—'}</div></div>
+      <div class="ind"><div class="ind-l">EMA 20</div><div class="ind-v">${e20?e20.toFixed(2):'—'}</div></div>
+      <div class="ind"><div class="ind-l">EMA 50</div><div class="ind-v">${e50?e50.toFixed(2):'—'}</div></div>
       <div class="ind"><div class="ind-l">Cena</div><div class="ind-v">${ep}</div></div>
     </div>
     <div class="forming-msg">Setup się formuje — czekaj na potwierdzenie.<br>${note}</div>`;
-  addLog(c.name, 'forming', `@ ${ep} — ${note}`);
+  addLog(c.name,'forming',`@ ${ep} — ${note}`);
 }
+
+const SYMBOLS={us500:'^GSPC',gold:'GC=F',eurusd:'EURUSD=X'};
 
 async function scan(){
   const t=waw();
   if(!t.active){setTxt('Poza godzinami (9:00–24:00)');schedNext();return;}
-  setDot('wait'); setTxt('Skanowanie...');
+  setDot('wait');setTxt('Skanowanie...');
   ['us500','gold','eurusd'].forEach(id=>{setBadge(id,'scan','skan...');setCard(id,'scan');});
-
-  let sigs=0, forming=0;
-
+  let sigs=0,forming=0;
   for(const key of ['us500','gold','eurusd']){
     const c=CFG[key];
     try{
-      const {closes, highs, lows, price, prevClose} = await fetchYahoo(c.ticker);
-      
-      // Update price display
-      const dec = c.dec;
-      document.getElementById('price-'+key).textContent = price.toFixed(dec);
-      const chgPct = prevClose ? ((price-prevClose)/prevClose*100) : 0;
-      const chgEl = document.getElementById('chg-'+key);
-      chgEl.textContent = `${chgPct>=0?'+':''}${chgPct.toFixed(2)}%`;
-      chgEl.className = 'ichange '+(chgPct>=0?'up':'down');
-
-      // Analyze
-      const {dir, note, e20, e50, atr: atrVal, mom} = analyzeSignal(key, closes, highs, lows);
-
+      const{closes,highs,lows,price,prev}=await fetchData(SYMBOLS[key]);
+      document.getElementById('price-'+key).textContent=price.toFixed(c.dec);
+      const chg=prev?((price-prev)/prev*100):0;
+      const cel=document.getElementById('chg-'+key);
+      cel.textContent=`${chg>=0?'+':''}${chg.toFixed(2)}%`;
+      cel.className='ichange '+(chg>=0?'up':'down');
+      const{dir,note,e20,e50,atrVal}=analyzeSignal(closes,highs,lows);
       if(dir==='LONG'||dir==='SHORT'){
-        sigs++;
-        const dl=dir.toLowerCase();
-        setBadge(key,dl,dir);
-        setCard(key,dl);
-        renderSetup(key, price, dl, note, e20, e50, atrVal, mom);
+        sigs++;const dl=dir.toLowerCase();
+        setBadge(key,dl,dir);setCard(key,dl);
+        renderSetup(key,price,dl,note,e20,e50,atrVal);
       } else if(dir==='FORMING'){
-        forming++;
-        setBadge(key,'forming','forming...');
-        setCard(key,'forming');
-        renderForming(key, price, note, e20, e50);
+        forming++;setBadge(key,'forming','forming...');setCard(key,'forming');
+        renderForming(key,price,note,e20,e50);
       } else {
-        setBadge(key,'wait','brak setupu');
-        setCard(key,'');
+        setBadge(key,'wait','brak setupu');setCard(key,'');
         document.getElementById('body-'+key).innerHTML='';
       }
-    } catch(e){
-      setBadge(key,'wait','błąd danych');
-      setCard(key,'');
+    }catch(e){
+      setBadge(key,'wait','błąd danych');setCard(key,'');
       document.getElementById('body-'+key).innerHTML='';
     }
   }
-
   const interval=parseInt(document.getElementById('scanmin').value)||5;
   setDot(sigs>0?'live':forming>0?'wait':'');
-  if(sigs>0) setTxt(`${sigs} sygnał${sigs>1?'y':''} — wejdź do XTB teraz`);
-  else if(forming>0) setTxt(`${forming} setup formuje się — skan za ${interval} min`);
+  if(sigs>0)setTxt(`${sigs} sygnał${sigs>1?'y':''} — wejdź do XTB teraz`);
+  else if(forming>0)setTxt(`${forming} setup formuje się — skan za ${interval} min`);
   else setTxt(`Brak setupów — skan za ${interval} min`);
-
   schedNext();
 }
 
 function schedNext(){if(!running)return;const i=parseInt(document.getElementById('scanmin').value)||5;nextIn=i*60;}
-
 function toggleMonitor(){
-  if(running){
-    running=false;nextIn=0;
-    document.getElementById('btnstart').className='bprimary';
-    document.getElementById('btnstart').textContent='Start monitoring ▶';
-    document.getElementById('nscan').textContent='';
-    setDot('');setTxt('Monitoring zatrzymany');
-  } else {
-    running=true;
-    document.getElementById('btnstart').className='bprimary stop';
-    document.getElementById('btnstart').textContent='Stop ◼';
-    if(Notification.permission==='default') Notification.requestPermission();
-    scan();
-  }
+  if(running){running=false;nextIn=0;document.getElementById('btnstart').className='bprimary';document.getElementById('btnstart').textContent='Start monitoring ▶';document.getElementById('nscan').textContent='';setDot('');setTxt('Monitoring zatrzymany');}
+  else{running=true;document.getElementById('btnstart').className='bprimary stop';document.getElementById('btnstart').textContent='Stop ◼';if(Notification.permission==='default')Notification.requestPermission();scan();}
 }
-
 function scanNow(){nextIn=0;scan();}
 setInterval(tick,1000);tick();updateRisk();
 </script>
