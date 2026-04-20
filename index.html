@@ -39,13 +39,20 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .bsec{padding:12px 16px;border:1px solid var(--border2);border-radius:var(--r);background:transparent;color:var(--muted2);font-size:13px;cursor:pointer;transition:all .15s;white-space:nowrap}
 .bsec:hover{border-color:var(--blue);color:var(--blue)}
 .slabel{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:.6rem}
+.cal-section{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:1rem 1.25rem;margin-bottom:1.5rem}
+.cal-event{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px}
+.cal-event:last-child{border:none}
+.cal-time{color:var(--muted);min-width:50px}
+.cal-name{color:var(--text);flex:1;margin:0 8px}
+.cal-imp{padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600}
+.imp-high{background:rgba(239,68,68,0.12);color:#ef4444}
+.imp-med{background:rgba(245,158,11,0.12);color:var(--amber)}
 .instruments{display:flex;flex-direction:column;gap:.5rem;margin-bottom:1.5rem}
 .icard{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:1rem 1.25rem;transition:border-color .3s,background .3s}
 .icard.forming{border-color:var(--ab);background:var(--abg)}
 .icard.sig-long{border-color:var(--gb);background:var(--gbg)}
 .icard.sig-short{border-color:var(--rb);background:var(--rbg)}
 .icard.scanning{border-color:var(--ab)}
-.icard.blocked{border-color:rgba(239,68,68,0.25);background:rgba(239,68,68,0.04)}
 .itop{display:flex;justify-content:space-between;align-items:center}
 .iname{font-size:15px;font-weight:600}
 .iright{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
@@ -58,7 +65,6 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .b-forming{background:var(--abg);color:var(--amber);border:1px solid var(--ab)}
 .b-wait{background:var(--bg3);color:var(--muted2);border:1px solid var(--border)}
 .b-scan{background:var(--abg);color:var(--amber);border:1px solid var(--ab)}
-.b-block{background:rgba(239,68,68,0.08);color:#ef4444;border:1px solid rgba(239,68,68,0.25)}
 .ibody{display:none;margin-top:.75rem}
 .icard.sig-long .ibody,.icard.sig-short .ibody,.icard.forming .ibody{display:block}
 .forming-msg{font-size:12px;color:var(--amber);line-height:1.6;padding:8px 12px;background:rgba(245,158,11,0.06);border-radius:var(--rs)}
@@ -79,20 +85,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .xtb-result{font-size:12px;color:var(--muted2);flex:1}
 .xtb-result strong{color:var(--text);font-variant-numeric:tabular-nums}
 .inote{font-size:12px;color:var(--muted2);line-height:1.6;margin-bottom:.75rem}
-.iaction{padding:10px 12px;background:rgba(255,255,255,0.04);border-radius:var(--rs);font-size:12px;color:var(--text);line-height:1.8}
-.iaction strong{color:var(--amber)}
 .imeta{display:flex;gap:12px;margin-top:.5rem}
 .mi{font-size:11px;color:var(--muted)}.mi span{color:var(--muted2)}
-.cal-section{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:1rem 1.25rem;margin-bottom:1.5rem}
-.cal-title{font-size:12px;font-weight:500;color:var(--text);margin-bottom:.75rem}
-.cal-event{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px}
-.cal-event:last-child{border:none}
-.cal-time{color:var(--muted);font-variant-numeric:tabular-nums;min-width:50px}
-.cal-name{color:var(--text);flex:1;margin:0 8px}
-.cal-imp{padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600}
-.imp-high{background:rgba(239,68,68,0.12);color:#ef4444}
-.imp-med{background:rgba(245,158,11,0.12);color:var(--amber)}
-.imp-low{background:var(--bg3);color:var(--muted2)}
 .logbox{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:1rem 1.25rem}
 .lempty{font-size:13px;color:var(--muted)}
 .lrow{display:flex;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px}
@@ -108,58 +102,46 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 </head>
 <body>
 <div class="wrap">
-
 <div class="top">
   <div><h1>Trading Monitor</h1><p>US500 · GOLD · EURUSD — 8:00–24:00</p></div>
   <div><div class="clock" id="clock">--:--</div><div class="day" id="daytxt">--</div></div>
 </div>
-
-<div class="news-block" id="news-block">NEWS BLOCK — ważne dane makro w ciągu 30 minut. Nie wchodzisz.</div>
-
+<div class="news-block" id="news-block">NEWS BLOCK — ważne dane USD za mniej niż 30 min. Nie wchodzisz.</div>
 <div class="sbar">
   <div class="dot" id="dot"></div>
   <span class="stxt" id="stxt">Gotowy — kliknij Start</span>
   <span class="nscan" id="nscan"></span>
 </div>
-
 <div class="settings">
   <div class="scell"><div class="slbl">Kapitał (PLN)</div><input class="sinput" id="capital" type="number" value="10000" step="1000" oninput="updateRisk()"><div class="ssub" id="rsub">Ryzyko/trade: 200 PLN</div></div>
   <div class="scell"><div class="slbl">Skan co (min)</div><input class="sinput" id="scanmin" type="number" value="5" min="1" max="30"><div class="ssub">Zalecane: 5 min</div></div>
 </div>
-
 <div class="brow">
   <button class="bprimary" id="btnstart" onclick="toggleMonitor()">Start monitoring ▶</button>
   <button class="bsec" onclick="scanNow()">Skan teraz</button>
 </div>
-
 <div class="slabel">kalendarz makro — dziś</div>
-<div class="cal-section">
-  <div id="cal-content"><div class="lempty">Ładowanie kalendarza...</div></div>
-</div>
-
+<div class="cal-section" id="cal-section"><div class="lempty">Ładowanie...</div></div>
 <div class="slabel">instrumenty</div>
 <div class="instruments">
   <div class="icard" id="card-us500"><div class="itop"><span class="iname">US500</span><div class="iright"><span class="ichange" id="chg-us500"></span><span class="iprice" id="price-us500">—</span><span class="badge b-wait" id="badge-us500">oczekiwanie</span></div></div><div class="ibody" id="body-us500"></div></div>
   <div class="icard" id="card-gold"><div class="itop"><span class="iname">GOLD</span><div class="iright"><span class="ichange" id="chg-gold"></span><span class="iprice" id="price-gold">—</span><span class="badge b-wait" id="badge-gold">oczekiwanie</span></div></div><div class="ibody" id="body-gold"></div></div>
   <div class="icard" id="card-eurusd"><div class="itop"><span class="iname">EUR/USD</span><div class="iright"><span class="ichange" id="chg-eurusd"></span><span class="iprice" id="price-eurusd">—</span><span class="badge b-wait" id="badge-eurusd">oczekiwanie</span></div></div><div class="ibody" id="body-eurusd"></div></div>
 </div>
-
 <div class="slabel">log sygnałów</div>
 <div class="logbox" id="logbox"><div class="lempty">Brak sygnałów — uruchom monitoring</div></div>
-
 <p class="disc">Nie jest poradą inwestycyjną. Używaj wyłącznie na koncie demo.<br>Decyzja i ryzyko należą wyłącznie do Ciebie.</p>
 </div>
-
 <script>
-const TD_KEY = 'f9612fdd5fd54eb69c261b03fe3a409f';
-const TG_TOKEN = '7980338718:AAFqiQTRwT99Qqql6SFNxgDQUBdJhk9dxtM';
-const TG_CHAT = '1599380596';
+const TD_KEY='f9612fdd5fd54eb69c261b03fe3a409f';
+const TG_TOKEN='7980338718:AAFqiQTRwT99Qqql6SFNxgDQUBdJhk9dxtM';
+const TG_CHAT='1599380596';
 
-const CFG = {
-  us500:  {name:'US500',   sym:'^GSPC',     sl:20,     tp:40,     dec:1, lot:0.05, source:'yahoo'},
-  gold:   {name:'GOLD',    sym:'XAU/USD', sl:25,     tp:50,     dec:1, lot:0.05, source:'td'},
-  eurusd: {name:'EUR/USD', sym:'EUR/USD', sl:0.0015, tp:0.0030, dec:5, lot:0.05, source:'td'}
-};
+const INSTRUMENTS=[
+  {key:'us500', name:'US500',   sym:'^GSPC',   src:'yahoo', sl:20,     tp:40,     dec:1, lot:0.05},
+  {key:'gold',  name:'GOLD',    sym:'XAU/USD', src:'td',    sl:25,     tp:50,     dec:1, lot:0.05},
+  {key:'eurusd',name:'EUR/USD', sym:'EUR/USD', src:'td',    sl:0.0015, tp:0.0030, dec:5, lot:0.05}
+];
 
 let running=false, nextIn=0, logs=[], newsBlocked=false;
 
@@ -167,13 +149,13 @@ function sendTelegram(msg){
   fetch('https://api.telegram.org/bot'+TG_TOKEN+'/sendMessage',{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({chat_id:TG_CHAT,text:msg,parse_mode:'HTML'})
-  });
+  }).catch(()=>{});
 }
 
 function waw(){
-  const now=new Date(), tz='Europe/Warsaw';
+  const now=new Date(),tz='Europe/Warsaw';
   const g=t=>parseInt(new Intl.DateTimeFormat('pl-PL',{timeZone:tz,[t]:'2-digit',hour12:false}).format(now));
-  const h=g('hour'), m=g('minute');
+  const h=g('hour'),m=g('minute');
   const dow=new Intl.DateTimeFormat('pl-PL',{timeZone:tz,weekday:'long'}).format(now);
   return{h,m,total:h*60+m,str:`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`,active:h>=8&&h<24,dow};
 }
@@ -181,7 +163,7 @@ function waw(){
 function tick(){
   const t=waw();
   const el=document.getElementById('clock');
-  el.textContent=t.str; el.className='clock'+(t.active?' on':'');
+  el.textContent=t.str;el.className='clock'+(t.active?' on':'');
   document.getElementById('daytxt').textContent=t.dow;
   if(running&&nextIn>0){nextIn--;document.getElementById('nscan').textContent=`skan za ${nextIn}s`;if(nextIn<=0)scan();}
 }
@@ -193,8 +175,14 @@ function updateRisk(){
 
 function setDot(t){document.getElementById('dot').className='dot'+(t==='live'?' live':t==='wait'?' wait':'');}
 function setTxt(t){document.getElementById('stxt').textContent=t;}
-function setBadge(id,cls,txt){const el=document.getElementById('badge-'+id);el.className='badge b-'+cls;el.innerHTML=cls==='scan'?`<span class="spinner"></span> ${txt}`:txt;}
-function setCard(id,sig){document.getElementById('card-'+id).className='icard'+(sig==='long'?' sig-long':sig==='short'?' sig-short':sig==='forming'?' forming':sig==='scan'?' scanning':sig==='block'?' blocked':'');}
+function setBadge(id,cls,txt){
+  const el=document.getElementById('badge-'+id);
+  el.className='badge b-'+cls;
+  el.innerHTML=cls==='scan'?`<span class="spinner"></span> ${txt}`:txt;
+}
+function setCard(id,sig){
+  document.getElementById('card-'+id).className='icard'+(sig==='long'?' sig-long':sig==='short'?' sig-short':sig==='forming'?' forming':sig==='scan'?' scanning':'');
+}
 
 function addLog(instr,dir,detail){
   const t=waw();
@@ -202,12 +190,11 @@ function addLog(instr,dir,detail){
   if(logs.length>30)logs.pop();
   renderLog();
   if(dir==='long'||dir==='short'){
-    sendTelegram('⚡ '+dir.toUpperCase()+' '+instr+'\n'+detail+'\nOtwórz XTB teraz!');
+    sendTelegram('⚡ <b>'+dir.toUpperCase()+' '+instr+'</b>\n'+detail+'\nOtwórz XTB teraz!');
     if(Notification.permission==='granted')
       new Notification(dir.toUpperCase()+' '+instr,{body:detail,requireInteraction:true});
-  }
-  if(dir==='forming'){
-    sendTelegram('⏳ FORMING '+instr+'\n'+detail);
+  } else if(dir==='forming'){
+    sendTelegram('⏳ <b>FORMING '+instr+'</b>\n'+detail);
   }
 }
 
@@ -225,229 +212,212 @@ function ema(data,period){
   return e;
 }
 
-function atr(highs,lows,closes,period=14){
+function atr(highs,lows,closes,period){
+  period=period||14;
   if(closes.length<period+1)return null;
   const trs=[];
   for(let i=1;i<closes.length;i++)
     trs.push(Math.max(highs[i]-lows[i],Math.abs(highs[i]-closes[i-1]),Math.abs(lows[i]-closes[i-1])));
-  return trs.slice(-period).reduce((a,b)=>a+b,0)/period;
+  return trs.slice(-period).reduce(function(a,b){return a+b;},0)/period;
 }
 
-function analyzeSignal(closes,highs,lows){
+function analyze(closes,highs,lows){
   if(!closes||closes.length<30)return{dir:'NO_SIGNAL',note:'za mało danych'};
-  const e20=ema(closes,20), e50=ema(closes,50);
-  const e20p=ema(closes.slice(0,-5),20), e50p=ema(closes.slice(0,-5),50);
-  const atrVal=atr(highs,lows,closes,14);
-  const price=closes[closes.length-1];
-  const mom=price-closes[closes.length-11];
-  const atrPct=atrVal?(atrVal/price*100):0;
-  const trendUp=e20>e50, trendDown=e20<e50;
-  const tsUp=trendUp?(e20-e50)>(e20p-e50p):(e50-e20)>(e50p-e20p);
-  const volOk=atrPct>0.2;
-  const aboveEMA=price>e20&&price>e50;
-  const belowEMA=price<e20&&price<e50;
-  const pr=price>100?1:price>1?2:5;
-  const fmt=v=>v?v.toFixed(pr):'?';
-  let dir='NO_SIGNAL', note='';
+  var e20=ema(closes,20),e50=ema(closes,50);
+  var e20p=ema(closes.slice(0,-5),20),e50p=ema(closes.slice(0,-5),50);
+  var atrVal=atr(highs,lows,closes,14);
+  var price=closes[closes.length-1];
+  var mom=price-closes[closes.length-11];
+  var atrPct=atrVal?(atrVal/price*100):0;
+  var trendUp=e20>e50,trendDown=e20<e50;
+  var tsUp=trendUp?(e20-e50)>(e20p-e50p):(e50-e20)>(e50p-e20p);
+  var volOk=atrPct>0.2;
+  var aboveEMA=price>e20&&price>e50;
+  var belowEMA=price<e20&&price<e50;
+  var dec=price>100?1:price>1?2:5;
+  var fmt=function(v){return v?v.toFixed(dec):'?';};
+  var dir='NO_SIGNAL',note='';
   if(trendUp&&mom>0&&aboveEMA){
-    if(tsUp&&volOk){dir='LONG';note=`Trend wzrostowy. EMA20=${fmt(e20)} > EMA50=${fmt(e50)}, momentum ↑`;}
-    else{dir='FORMING';note=`Trend wzrostowy, czekam na potwierdzenie. EMA20=${fmt(e20)} EMA50=${fmt(e50)}`;}
+    if(tsUp&&volOk){dir='LONG';note='Trend wzrostowy. EMA20='+fmt(e20)+' > EMA50='+fmt(e50)+', momentum ↑';}
+    else{dir='FORMING';note='Trend wzrostowy, czekam na potwierdzenie. EMA20='+fmt(e20)+' EMA50='+fmt(e50);}
   } else if(trendDown&&mom<0&&belowEMA){
-    if(tsUp&&volOk){dir='SHORT';note=`Trend spadkowy. EMA20=${fmt(e20)} < EMA50=${fmt(e50)}, momentum ↓`;}
-    else{dir='FORMING';note=`Trend spadkowy, czekam na potwierdzenie. EMA20=${fmt(e20)} EMA50=${fmt(e50)}`;}
+    if(tsUp&&volOk){dir='SHORT';note='Trend spadkowy. EMA20='+fmt(e20)+' < EMA50='+fmt(e50)+', momentum ↓';}
+    else{dir='FORMING';note='Trend spadkowy, czekam na potwierdzenie. EMA20='+fmt(e20)+' EMA50='+fmt(e50);}
   } else {
-    note=`Brak wyraźnego trendu. EMA20=${fmt(e20)} EMA50=${fmt(e50)}`;
+    note='Brak wyraźnego trendu. EMA20='+fmt(e20)+' EMA50='+fmt(e50);
   }
-  return{dir,note,e20,e50,atrVal,price};
+  return{dir:dir,note:note,e20:e20,e50:e50,atrVal:atrVal,price:price};
 }
 
 async function fetchYahoo(sym){
-  const url=`https://corsproxy.io/?url=https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1h&range=30d`;
-  const r=await fetch(url);
-  const d=await r.json();
-  const res=d.chart.result[0];
-  const closes=res.indicators.quote[0].close.filter(v=>v!=null);
-  const highs=res.indicators.quote[0].high.filter(v=>v!=null);
-  const lows=res.indicators.quote[0].low.filter(v=>v!=null);
-  const price=res.meta.regularMarketPrice;
-  const prev=res.meta.previousClose||res.meta.chartPreviousClose;
-  return{closes,highs,lows,price,prev};
+  var url='https://corsproxy.io/?url='+encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/'+sym+'?interval=1h&range=30d');
+  var r=await fetch(url);
+  var d=await r.json();
+  var res=d.chart.result[0];
+  var closes=res.indicators.quote[0].close.filter(function(v){return v!=null;});
+  var highs=res.indicators.quote[0].high.filter(function(v){return v!=null;});
+  var lows=res.indicators.quote[0].low.filter(function(v){return v!=null;});
+  var price=res.meta.regularMarketPrice;
+  var prev=res.meta.previousClose||res.meta.chartPreviousClose;
+  return{closes:closes,highs:highs,lows:lows,price:price,prev:prev};
 }
 
-async function fetchTD(symbol){
-  const url=`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1h&outputsize=500&apikey=${TD_KEY}`;
-  const r=await fetch(url);
-  const d=await r.json();
+async function fetchTD(sym){
+  var url='https://api.twelvedata.com/time_series?symbol='+encodeURIComponent(sym)+'&interval=1h&outputsize=500&apikey='+TD_KEY;
+  var r=await fetch(url);
+  var d=await r.json();
   if(d.status==='error')throw new Error(d.message);
-  if(!d.values||!Array.isArray(d.values)||d.values.length<2)throw new Error('brak danych: '+JSON.stringify(d).slice(0,100));
-  const values=d.values;
-  const closes=values.map(v=>parseFloat(v.close)).reverse();
-  const highs=values.map(v=>parseFloat(v.high)).reverse();
-  const lows=values.map(v=>parseFloat(v.low)).reverse();
-  const price=parseFloat(values[0].close);
-  const prev=parseFloat(values[1].close);
-  return{closes,highs,lows,price,prev};
+  if(!d.values||d.values.length<2)throw new Error('brak danych');
+  var values=d.values;
+  var closes=values.map(function(v){return parseFloat(v.close);}).reverse();
+  var highs=values.map(function(v){return parseFloat(v.high);}).reverse();
+  var lows=values.map(function(v){return parseFloat(v.low);}).reverse();
+  var price=parseFloat(values[0].close);
+  var prev=parseFloat(values[1].close);
+  return{closes:closes,highs:highs,lows:lows,price:price,prev:prev};
 }
 
 function calcXTB(key,dir,inputId,resultId){
-  const c=CFG[key];
-  const price=parseFloat(document.getElementById(inputId).value);
+  var instr=INSTRUMENTS.find(function(i){return i.key===key;});
+  var price=parseFloat(document.getElementById(inputId).value);
   if(!price||isNaN(price)){document.getElementById(resultId).innerHTML='wpisz cenę z XTB';return;}
-  const isL=dir==='long';
-  const sl=(isL?price-c.sl:price+c.sl).toFixed(c.dec);
-  const tp=(isL?price+c.tp:price-c.tp).toFixed(c.dec);
-  document.getElementById(resultId).innerHTML=`SL <strong>${sl}</strong> · TP <strong>${tp}</strong> · lot <strong>${c.lot}</strong>`;
+  var isL=dir==='long';
+  var sl=(isL?price-instr.sl:price+instr.sl).toFixed(instr.dec);
+  var tp=(isL?price+instr.tp:price-instr.tp).toFixed(instr.dec);
+  document.getElementById(resultId).innerHTML='SL <strong>'+sl+'</strong> · TP <strong>'+tp+'</strong> · lot <strong>'+instr.lot+'</strong>';
 }
 
-function renderSetup(key,price,dir,note,e20,e50,atrVal){
-  const c=CFG[key];
-  const cap=parseFloat(document.getElementById('capital').value)||10000;
-  const risk=(cap*0.02).toFixed(0), reward=(cap*0.04).toFixed(0);
-  const isL=dir==='long';
-  const sl=(isL?price-c.sl:price+c.sl).toFixed(c.dec);
-  const tp=(isL?price+c.tp:price-c.tp).toFixed(c.dec);
-  const ep=price.toFixed(c.dec);
-  const inputId=`xtb-${key}`, resultId=`xtb-res-${key}`;
-
-  document.getElementById('body-'+key).innerHTML=`
-    <div class="sgrid">
-      <div class="sc"><div class="sc-l">Kierunek</div><div class="sc-v ${dir==='long'?'vtp':'vsl'}">${dir.toUpperCase()}</div></div>
-      <div class="sc"><div class="sc-l">SL (pkt)</div><div class="sc-v vsl">${c.sl}</div></div>
-      <div class="sc"><div class="sc-l">TP (pkt)</div><div class="sc-v vtp">${c.tp}</div></div>
-      <div class="sc"><div class="sc-l">Lot</div><div class="sc-v vlot">${c.lot}</div></div>
-    </div>
-    <div class="indicators">
-      <div class="ind"><div class="ind-l">EMA 20</div><div class="ind-v">${e20?e20.toFixed(c.dec>1?c.dec:1):'—'}</div></div>
-      <div class="ind"><div class="ind-l">EMA 50</div><div class="ind-v">${e50?e50.toFixed(c.dec>1?c.dec:1):'—'}</div></div>
-      <div class="ind"><div class="ind-l">ATR 14</div><div class="ind-v">${atrVal?atrVal.toFixed(1):'—'}</div></div>
-    </div>
-    <div class="inote">${note}</div>
-    <div class="xtb-calc">
-      <div class="xtb-label">Wpisz cenę z XTB → dostajesz SL i TP</div>
-      <div class="xtb-row">
-        <input class="xtb-input" id="${inputId}" type="number" placeholder="${ep}" step="${c.dec>1?'0.00001':'0.1'}" oninput="calcXTB('${key}','${dir}','${inputId}','${resultId}')">
-        <div class="xtb-result" id="${resultId}">wpisz cenę z XTB</div>
-      </div>
-    </div>
-    <div class="imeta"><div class="mi">ryzyko: <span>${risk} PLN</span></div><div class="mi">cel: <span>+${reward} PLN</span></div><div class="mi">R:R <span>1:2</span></div></div>`;
-
-  addLog(c.name,dir,`kierunek ${dir.toUpperCase()} · SL ${c.sl}pkt · TP ${c.tp}pkt`);
+function renderSetup(instr,price,dir,note,e20,e50,atrVal){
+  var cap=parseFloat(document.getElementById('capital').value)||10000;
+  var risk=(cap*0.02).toFixed(0),reward=(cap*0.04).toFixed(0);
+  var isL=dir==='long';
+  var sl=(isL?price-instr.sl:price+instr.sl).toFixed(instr.dec);
+  var tp=(isL?price+instr.tp:price-instr.tp).toFixed(instr.dec);
+  var ep=price.toFixed(instr.dec);
+  var inputId='xtb-'+instr.key,resultId='xtb-res-'+instr.key;
+  var e20str=e20?e20.toFixed(instr.dec>1?instr.dec:1):'—';
+  var e50str=e50?e50.toFixed(instr.dec>1?instr.dec:1):'—';
+  var atrStr=atrVal?atrVal.toFixed(instr.dec>1?instr.dec:1):'—';
+  var step=instr.dec>1?'0.00001':'0.1';
+  document.getElementById('body-'+instr.key).innerHTML=
+    '<div class="sgrid">'+
+    '<div class="sc"><div class="sc-l">Kierunek</div><div class="sc-v '+(dir==='long'?'vtp':'vsl')+'">'+dir.toUpperCase()+'</div></div>'+
+    '<div class="sc"><div class="sc-l">SL (pkt)</div><div class="sc-v vsl">'+instr.sl+'</div></div>'+
+    '<div class="sc"><div class="sc-l">TP (pkt)</div><div class="sc-v vtp">'+instr.tp+'</div></div>'+
+    '<div class="sc"><div class="sc-l">Lot</div><div class="sc-v vlot">'+instr.lot+'</div></div>'+
+    '</div>'+
+    '<div class="indicators">'+
+    '<div class="ind"><div class="ind-l">EMA 20</div><div class="ind-v">'+e20str+'</div></div>'+
+    '<div class="ind"><div class="ind-l">EMA 50</div><div class="ind-v">'+e50str+'</div></div>'+
+    '<div class="ind"><div class="ind-l">ATR 14</div><div class="ind-v">'+atrStr+'</div></div>'+
+    '</div>'+
+    '<div class="inote">'+note+'</div>'+
+    '<div class="xtb-calc"><div class="xtb-label">Wpisz cenę z XTB → dostajesz SL i TP</div>'+
+    '<div class="xtb-row"><input class="xtb-input" id="'+inputId+'" type="number" placeholder="'+ep+'" step="'+step+'" oninput="calcXTB(\''+instr.key+'\',\''+dir+'\',\''+inputId+'\',\''+resultId+'\')">'+
+    '<div class="xtb-result" id="'+resultId+'">wpisz cenę z XTB</div></div></div>'+
+    '<div class="imeta"><div class="mi">ryzyko: <span>'+risk+' PLN</span></div><div class="mi">cel: <span>+'+reward+' PLN</span></div><div class="mi">R:R <span>1:2</span></div></div>';
+  addLog(instr.name,dir,'kierunek '+dir.toUpperCase()+' · SL '+instr.sl+'pkt · TP '+instr.tp+'pkt');
 }
 
-function renderForming(key,price,note,e20,e50){
-  const c=CFG[key];
-  const ep=price.toFixed(c.dec);
-  document.getElementById('body-'+key).innerHTML=`
-    <div class="indicators">
-      <div class="ind"><div class="ind-l">EMA 20</div><div class="ind-v">${e20?e20.toFixed(c.dec>1?c.dec:1):'—'}</div></div>
-      <div class="ind"><div class="ind-l">EMA 50</div><div class="ind-v">${e50?e50.toFixed(c.dec>1?c.dec:1):'—'}</div></div>
-      <div class="ind"><div class="ind-l">Cena TD</div><div class="ind-v">${ep}</div></div>
-    </div>
-    <div class="forming-msg">Setup się formuje — czekaj na potwierdzenie.<br>${note}</div>`;
-  addLog(c.name,'forming',`@ ${ep} — ${note}`);
+function renderForming(instr,price,note,e20,e50){
+  var ep=price.toFixed(instr.dec);
+  var e20str=e20?e20.toFixed(instr.dec>1?instr.dec:1):'—';
+  var e50str=e50?e50.toFixed(instr.dec>1?instr.dec:1):'—';
+  document.getElementById('body-'+instr.key).innerHTML=
+    '<div class="indicators">'+
+    '<div class="ind"><div class="ind-l">EMA 20</div><div class="ind-v">'+e20str+'</div></div>'+
+    '<div class="ind"><div class="ind-l">EMA 50</div><div class="ind-v">'+e50str+'</div></div>'+
+    '<div class="ind"><div class="ind-l">Cena</div><div class="ind-v">'+ep+'</div></div>'+
+    '</div>'+
+    '<div class="forming-msg">Setup się formuje — czekaj na potwierdzenie.<br>'+note+'</div>';
+  addLog(instr.name,'forming','@ '+ep+' — '+note);
 }
 
 async function loadCalendar(){
-  const t=waw();
+  var t=waw();
   try{
-    const url=`https://corsproxy.io/?https://nfs.faireconomy.media/ff_calendar_thisweek.json`;
-    const r=await fetch(url);
-    const events=await r.json();
-    const todayStr=new Date().toISOString().split('T')[0];
-    const todayEvents=events.filter(e=>{
+    var r=await fetch('https://corsproxy.io/?url='+encodeURIComponent('https://nfs.faireconomy.media/ff_calendar_thisweek.json'));
+    var events=await r.json();
+    var todayStr=new Date().toISOString().split('T')[0];
+    var todayEvents=events.filter(function(e){
       if(!e.date)return false;
-      const d=new Date(e.date);
-      const ds=d.toISOString().split('T')[0];
-      return ds===todayStr && (e.impact==='High'||e.impact==='Medium') && e.country==='USD';
+      var ds=new Date(e.date).toISOString().split('T')[0];
+      return ds===todayStr&&(e.impact==='High'||e.impact==='Medium')&&e.country==='USD';
     });
-
     newsBlocked=false;
-    if(todayEvents.length===0){
-      document.getElementById('cal-content').innerHTML='<div class="cal-event"><span class="cal-name" style="color:var(--green)">Brak ważnych danych USD dziś</span></div>';
+    if(!todayEvents.length){
+      document.getElementById('cal-section').innerHTML='<div class="cal-event"><span class="cal-name" style="color:var(--green)">Brak ważnych danych USD dziś</span></div>';
       document.getElementById('news-block').classList.remove('visible');
       return;
     }
-
-    let html='';
-    todayEvents.forEach(ev=>{
-      const evTime=new Date(ev.date);
-      const wawH=parseInt(new Intl.DateTimeFormat('pl-PL',{timeZone:'Europe/Warsaw',hour:'2-digit',hour12:false}).format(evTime));
-      const wawM=parseInt(new Intl.DateTimeFormat('pl-PL',{timeZone:'Europe/Warsaw',minute:'2-digit'}).format(evTime));
-      const evTotal=wawH*60+wawM;
-      const diff=evTotal-t.total;
-      const impCls=ev.impact==='High'?'imp-high':'imp-med';
-      const timeStr=`${String(wawH).padStart(2,'0')}:${String(wawM).padStart(2,'0')}`;
-      if(diff>=-30&&diff<=30) newsBlocked=true;
-      html+=`<div class="cal-event"><span class="cal-time">${timeStr}</span><span class="cal-name">${ev.title}</span><span class="cal-imp ${impCls}">${ev.impact}</span></div>`;
+    var html='';
+    todayEvents.forEach(function(ev){
+      var evTime=new Date(ev.date);
+      var wH=parseInt(new Intl.DateTimeFormat('pl-PL',{timeZone:'Europe/Warsaw',hour:'2-digit',hour12:false}).format(evTime));
+      var wM=parseInt(new Intl.DateTimeFormat('pl-PL',{timeZone:'Europe/Warsaw',minute:'2-digit'}).format(evTime));
+      var evTotal=wH*60+wM;
+      var diff=evTotal-t.total;
+      var impCls=ev.impact==='High'?'imp-high':'imp-med';
+      var timeStr=String(wH).padStart(2,'0')+':'+String(wM).padStart(2,'0');
+      if(diff>=-30&&diff<=30)newsBlocked=true;
+      html+='<div class="cal-event"><span class="cal-time">'+timeStr+'</span><span class="cal-name">'+ev.title+'</span><span class="cal-imp '+impCls+'">'+ev.impact+'</span></div>';
     });
-
-    document.getElementById('cal-content').innerHTML=html;
-    if(newsBlocked){
-      document.getElementById('news-block').classList.add('visible');
-      document.getElementById('news-block').textContent='NEWS BLOCK — ważne dane USD w ciągu ±30 minut. Nie wchodzisz.';
-    } else {
-      document.getElementById('news-block').classList.remove('visible');
-    }
+    document.getElementById('cal-section').innerHTML=html;
+    if(newsBlocked){document.getElementById('news-block').classList.add('visible');}
+    else{document.getElementById('news-block').classList.remove('visible');}
   }catch(e){
-    document.getElementById('cal-content').innerHTML='<div class="lempty">Sprawdź ręcznie: investing.com/economic-calendar</div>';
+    document.getElementById('cal-section').innerHTML='<div class="lempty">Sprawdź ręcznie: investing.com/economic-calendar</div>';
   }
 }
 
 async function scan(){
-  const t=waw();
+  var t=waw();
   await loadCalendar();
-
   if(!t.active){setTxt('Poza godzinami (8:00–24:00)');schedNext();return;}
-  if(newsBlocked){
-    setDot('');setTxt('NEWS BLOCK — nie wchodzisz teraz');
-    ['us500','gold','eurusd'].forEach(id=>{setBadge(id,'block','news block');setCard(id,'block');});
-    schedNext();return;
-  }
-
+  if(newsBlocked){setDot('');setTxt('NEWS BLOCK — nie wchodzisz teraz');schedNext();return;}
   setDot('wait');setTxt('Skanowanie...');
-  ['us500','gold','eurusd'].forEach(id=>{setBadge(id,'scan','skan...');setCard(id,'scan');});
-
-  let sigs=0, forming=0;
-
-  for(const key of ['us500','gold','eurusd']){
-    const c=CFG[key];
-    const cName=c.name;
+  INSTRUMENTS.forEach(function(instr){setBadge(instr.key,'scan','skan...');setCard(instr.key,'scan');});
+  var sigs=0,forming=0;
+  for(var i=0;i<INSTRUMENTS.length;i++){
+    var instr=INSTRUMENTS[i];
     try{
-      const{closes,highs,lows,price,prev}=c.source==='yahoo'?await fetchYahoo(c.sym):await fetchTD(c.sym);
-      document.getElementById('price-'+key).textContent=price.toFixed(c.dec);
-      const chg=prev?((price-prev)/prev*100):0;
-      const cel=document.getElementById('chg-'+key);
-      cel.textContent=`${chg>=0?'+':''}${chg.toFixed(2)}%`;
+      var data=instr.src==='yahoo'?await fetchYahoo(instr.sym):await fetchTD(instr.sym);
+      var closes=data.closes,highs=data.highs,lows=data.lows,price=data.price,prev=data.prev;
+      document.getElementById('price-'+instr.key).textContent=price.toFixed(instr.dec);
+      var chg=prev?((price-prev)/prev*100):0;
+      var cel=document.getElementById('chg-'+instr.key);
+      cel.textContent=(chg>=0?'+':'')+chg.toFixed(2)+'%';
       cel.className='ichange '+(chg>=0?'up':'down');
-      const{dir,note,e20,e50,atrVal}=analyzeSignal(closes,highs,lows);
+      var result=analyze(closes,highs,lows);
+      var dir=result.dir,note=result.note,e20=result.e20,e50=result.e50,atrVal=result.atrVal;
       if(dir==='LONG'||dir==='SHORT'){
-        sigs++;const dl=dir.toLowerCase();
-        setBadge(key,dl,dir);setCard(key,dl);
-        renderSetup(key,price,dl,note,e20,e50,atrVal);
+        sigs++;
+        var dl=dir.toLowerCase();
+        setBadge(instr.key,dl,dir);setCard(instr.key,dl);
+        renderSetup(instr,price,dl,note,e20,e50,atrVal);
       } else if(dir==='FORMING'){
-        forming++;setBadge(key,'forming','forming...');setCard(key,'forming');
-        renderForming(key,price,note,e20,e50);
+        forming++;
+        setBadge(instr.key,'forming','forming...');setCard(instr.key,'forming');
+        renderForming(instr,price,note,e20,e50);
       } else {
-        setBadge(key,'wait','brak setupu');setCard(key,'');
-        document.getElementById('body-'+key).innerHTML='';
+        setBadge(instr.key,'wait','brak setupu');setCard(instr.key,'');
+        document.getElementById('body-'+instr.key).innerHTML='';
       }
-    }catch(e){
-      console.error(cName, e.message);
-      setBadge(key,'wait','błąd');setCard(key,'');
-      document.getElementById('body-'+key).innerHTML=`<div style="font-size:11px;color:var(--muted2);margin-top:8px">${e.message}</div>`;
+    }catch(err){
+      console.error(instr.name,err.message);
+      setBadge(instr.key,'wait','błąd');setCard(instr.key,'');
+      document.getElementById('body-'+instr.key).innerHTML='<div style="font-size:11px;color:var(--muted2);margin-top:4px">'+err.message+'</div>';
     }
   }
-
-  const interval=parseInt(document.getElementById('scanmin').value)||5;
+  var interval=parseInt(document.getElementById('scanmin').value)||5;
   setDot(sigs>0?'live':forming>0?'wait':'');
-  if(sigs>0)setTxt(`${sigs} sygnał${sigs>1?'y':''} — wpisz cenę z XTB`);
-  else if(forming>0)setTxt(`${forming} setup formuje się — skan za ${interval} min`);
-  else setTxt(`Brak setupów — skan za ${interval} min`);
-
+  if(sigs>0)setTxt(sigs+' sygnał'+(sigs>1?'y':'')+' — wpisz cenę z XTB');
+  else if(forming>0)setTxt(forming+' setup formuje się — skan za '+interval+' min');
+  else setTxt('Brak setupów — skan za '+interval+' min');
   schedNext();
 }
 
-function schedNext(){if(!running)return;const i=parseInt(document.getElementById('scanmin').value)||5;nextIn=i*60;}
+function schedNext(){if(!running)return;var i=parseInt(document.getElementById('scanmin').value)||5;nextIn=i*60;}
 
 function toggleMonitor(){
   if(running){
