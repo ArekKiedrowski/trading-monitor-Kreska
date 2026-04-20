@@ -233,13 +233,22 @@ function tick(){
 // ─── MARKET CONTEXT ──────────────────────────────────────────
 async function loadDXY(){
   try{
-    const url='https://api.twelvedata.com/time_series?symbol=DX/Y&interval=1h&outputsize=20&apikey='+TD_KEY;
-    const r=await fetch(url);
-    const d=await r.json();
-    if(d.status==='error'||!d.values)throw new Error('no data');
-    const vals=d.values;
-    const price=parseFloat(vals[0].close);
-    const prev=parseFloat(vals[5].close);
+    // UUP = USD ETF, free on Yahoo
+    const yahooUrl='https://query1.finance.yahoo.com/v8/finance/chart/UUP?interval=1h&range=5d';
+    const proxies=['https://api.allorigins.win/get?url=','https://corsproxy.io/?url='];
+    let data=null;
+    for(const p of proxies){
+      try{
+        const r=await fetch(p+encodeURIComponent(yahooUrl),{signal:AbortSignal.timeout(6000)});
+        const d=await r.json();
+        data=d.contents?JSON.parse(d.contents):d;
+        break;
+      }catch(e){}
+    }
+    if(!data)throw new Error('no data');
+    const quotes=data.chart.result[0].indicators.quote[0].close.filter(v=>v!=null);
+    const price=quotes[quotes.length-1];
+    const prev=quotes[Math.max(0,quotes.length-6)];
     const trend=price>prev?'up':'down';
     marketCtx.dxy=price;marketCtx.dxyTrend=trend;
     const el=document.getElementById('dxy-val');
