@@ -462,7 +462,7 @@ function renderSetup(instr,price,dir,note,e20,e50,atrVal,entryLevel,slLevel,tpLe
     '<div style="padding:10px 12px;background:rgba(255,255,255,0.04);border-radius:var(--rs);font-size:12px;color:var(--text);line-height:1.8;margin-bottom:.75rem">'+
     'XTB → '+instr.name+' → entry <strong>'+ep+'</strong> · SL <strong>'+sl+'</strong> · TP <strong>'+tp+'</strong> · lot <strong>'+instr.lot+'</strong>'+
     (!isNearEntry?'<br><span style="font-size:11px;color:var(--amber)">Ustaw zlecenie LIMIT w XTB na '+ep+'</span>':'')+
-    '<br><span style="font-size:11px;color:var(--muted2)">Trailing stop: gdy +'+tp+' pkt zysku → przesuń SL na entry</span>'+
+    '<br><span style="font-size:11px;color:var(--muted2)">Trailing stop: gdy zysk = TP → przesuń SL na entry</span>'+
     '</div>'+
     '<div class="imeta"><div class="mi">ryzyko: <span>'+risk+' PLN</span></div><div class="mi">cel: <span>+'+reward+' PLN</span></div><div class="mi">R:R <span>1:2</span></div></div>';
   var tgMsg='⚡ <b>'+dir.toUpperCase()+' '+instr.name+'</b>\nEntry ('+entryType+'): '+ep+'\nSL: '+sl+'\nTP: '+tp+'\nLot: '+instr.lot+'\n'+note+'\n\n➡️ Wpisz w XTB i zatwierdź';
@@ -597,19 +597,14 @@ async function scan(){
           var dl=dir.toLowerCase();
           setBadge(instr.key,dl,dir);setCard(instr.key,dl);
           var entryPrice=m5entry||result.entryLevel||price;
-          var sessionNote=session.good?'':(session.london||session.ny?'':'
-⚠️ Poza sesją London/NY — sygnał słabszy');
-          var d1blockNote=d1blocked?('
-'+d1note):'';
-          var fullNote=note+(m15?'
-M15 RSI: '+m15note:'')+d1blockNote+sessionNote;
+          var sessionNote=session.good?'':(session.london||session.ny?'':'\n⚠️ Poza sesją London/NY — sygnał słabszy');
+          var d1blockNote=d1blocked?('\n'+d1note):'';
+          var fullNote=note+(m15?'\nM15 RSI: '+m15note:'')+d1blockNote+sessionNote;
           renderSetup(instr,entryPrice,dl,fullNote,e20,e50,atrVal,result.entryLevel,result.slLevel,result.tpLevel);
         } else {
           forming++;
           setBadge(instr.key,'forming','czekaj M15');setCard(instr.key,'forming');
-          var fNote=note+'
-⚠️ '+m15note+(d1blocked?'
-'+d1note:'');
+          var fNote=note+'\n⚠️ '+m15note+(d1blocked?'\n'+d1note:'');
           renderForming(instr,price,fNote,e20,e50);
         }
       } else if(dir==='FORMING'){
