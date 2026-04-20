@@ -189,13 +189,6 @@ function addLog(instr,dir,detail){
   logs.unshift({time:t.str,instr,dir,detail});
   if(logs.length>30)logs.pop();
   renderLog();
-  if(dir==='long'||dir==='short'){
-    sendTelegram('⚡ <b>'+dir.toUpperCase()+' '+instr+'</b>\n'+detail+'\nOtwórz XTB teraz!');
-    if(Notification.permission==='granted')
-      new Notification(dir.toUpperCase()+' '+instr,{body:detail,requireInteraction:true});
-  } else if(dir==='forming'){
-    sendTelegram('⏳ <b>FORMING '+instr+'</b>\n'+detail);
-  }
 }
 
 function renderLog(){
