@@ -1,0 +1,57 @@
+name: Telegram Test Message
+
+on:
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send test message to Telegram
+        env:
+          TG_WEBHOOK: ${{ secrets.TG_WEBHOOK }}
+        run: |
+          if [ -z "$TG_WEBHOOK" ]; then
+            echo "Brak TG_WEBHOOK w secrets!"
+            exit 1
+          fi
+
+          TS="$(date +'%Y-%m-%d %H:%M:%S')"
+          MSG="✅ Test z GitHub Actions\nCzas: ${TS}\nRepo: $GITHUB_REPOSITORY"
+
+          export MSG
+
+          node << 'SCRIPT'
+          const https = require('https');
+          const url = new URL(process.env.TG_WEBHOOK);
+          const msg = process.env.MSG;
+
+          const body = JSON.stringify({ text: msg });
+          const options = {
+            hostname: url.hostname,
+            path: url.pathname + url.search,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(body)
+            }
+          };
+
+          const req = https.request(options, res => {
+            let data = '';
+            res.on('data', c => data += c);
+            res.on('end', () => {
+              console.log('Status:', res.statusCode);
+              console.log('Body:', data.slice(0, 200));
+            });
+          });
+
+          req.on('error', e => {
+            console.error('Telegram error:', e.message);
+            process.exit(1);
+          });
+
+          req.write(body);
+          req.end();
+          SCRIPT
