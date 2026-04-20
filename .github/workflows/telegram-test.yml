@@ -19,9 +19,11 @@ jobs:
 
           TS="$(date +'%Y-%m-%d %H:%M:%S')"
 
-          RESPONSE=$(curl -s -X POST "$TG_WEBHOOK" \
+          HTTP_CODE=$(curl -s -o response.txt -w "%{http_code}" -X POST "$TG_WEBHOOK" \
             --data-urlencode "text=✅ Test z GitHub Actions\nCzas: ${TS}\nRepo: $GITHUB_REPOSITORY")
 
-          echo "$RESPONSE"
+          echo "HTTP_CODE=$HTTP_CODE"
+          echo "RESPONSE:"
+          cat response.txt
 
-          echo "$RESPONSE" | grep '"ok":true' >/dev/null || exit 1
+          grep '"ok":true' response.txt >/dev/null || exit 1
