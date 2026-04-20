@@ -309,10 +309,11 @@ function analyze(closes,highs,lows){
 }
  
 async function fetchYahoo(sym){
-  var url='https://corsproxy.io/?url='+encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/'+sym+'?interval=1h&range=30d');
+  var url='https://api.allorigins.win/get?url='+encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/'+sym+'?interval=1h&range=30d');
   var r=await fetch(url);
   var d=await r.json();
-  var res=d.chart.result[0];
+  var parsed=typeof d.contents==='string'?JSON.parse(d.contents):d;
+  var res=parsed.chart.result[0];
   var closes=res.indicators.quote[0].close.filter(function(v){return v!=null;});
   var highs=res.indicators.quote[0].high.filter(function(v){return v!=null;});
   var lows=res.indicators.quote[0].low.filter(function(v){return v!=null;});
