@@ -1008,21 +1008,17 @@ async function scan(){
         filters.push({label:'RSI M15: '+m15.rsi,cls:rsiWarn?'ft-warn':'ft-ok'});
       }
 
-      // ADX - trend strength
-      let adxVal=null,rocVal=null;
-      try{adxVal=adx(highs,lows,closes,14);}catch(e){}
-      try{rocVal=roc(closes,10);}catch(e){}
-      if(adxVal){
-        const adxStr=adxVal.toFixed(1);
-        filters.push({label:'ADX: '+adxStr,cls:adxVal>=(instr.adxMin||20)?'ft-ok':adxVal>15?'ft-warn':'ft-bad'});
-        if(adxVal<15)warnings++; // weak trend = extra warning
+      // ADX - trend strength (from analyzeH1)
+      if(h1.adxVal){
+        const adxOk=h1.adxVal>=(instr.adxMin||20);
+        filters.push({label:'ADX: '+h1.adxVal.toFixed(1),cls:adxOk?'ft-ok':h1.adxVal>15?'ft-warn':'ft-bad'});
+        if(h1.adxVal<15)warnings++;
       }
 
-      // ROC momentum
-      if(rocVal!==null){
-        const rocStr=rocVal.toFixed(2)+'%';
-        const rocOk=(h1.dir==='LONG'&&rocVal>0)||(h1.dir==='SHORT'&&rocVal<0);
-        filters.push({label:'ROC: '+rocStr,cls:rocOk?'ft-ok':'ft-warn'});
+      // ROC momentum (from analyzeH1)
+      if(h1.rocVal!==null&&h1.rocVal!==undefined){
+        const rocOk=(h1.dir==='LONG'&&h1.rocVal>0)||(h1.dir==='SHORT'&&h1.rocVal<0);
+        filters.push({label:'ROC: '+h1.rocVal.toFixed(2)+'%',cls:rocOk?'ft-ok':'ft-warn'});
       }
 
       // ATR% volatility check
