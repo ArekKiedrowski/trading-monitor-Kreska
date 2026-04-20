@@ -315,6 +315,27 @@ function analyze(closes,highs,lows){
   return{dir:dir,note:note,e20:e20,e50:e50,atrVal:atrVal,price:price,entryLevel:entryLevel,slLevel:slLevel,tpLevel:tpLevel};
 }
 
+function analyzeD1(closes){
+  if(!closes||closes.length<50)return{trend:'NEUTRAL'};
+  var e20=ema(closes,20),e50=ema(closes,50);
+  var price=closes[closes.length-1];
+  if(e20>e50&&price>e50)return{trend:'UP',e20:e20,e50:e50};
+  if(e20<e50&&price<e50)return{trend:'DOWN',e20:e20,e50:e50};
+  return{trend:'NEUTRAL',e20:e20,e50:e50};
+}
+
+function isGoodSession(){
+  var t=waw();
+  var h=t.h,m=t.m,total=t.total;
+  // London open: 9:00-12:00 PL
+  var london=total>=540&&total<=720;
+  // NY open: 15:00-18:00 PL
+  var ny=total>=900&&total<=1080;
+  // Overlap London/NY: 15:00-17:00
+  var overlap=total>=900&&total<=1020;
+  return{london:london,ny:ny,overlap:overlap,good:london||ny};
+}
+
 async function fetchYahoo(sym){
   var yahooUrl='https://query1.finance.yahoo.com/v8/finance/chart/'+sym+'?interval=1h&range=30d';
   var proxies=[
@@ -441,6 +462,7 @@ function renderSetup(instr,price,dir,note,e20,e50,atrVal,entryLevel,slLevel,tpLe
     '<div style="padding:10px 12px;background:rgba(255,255,255,0.04);border-radius:var(--rs);font-size:12px;color:var(--text);line-height:1.8;margin-bottom:.75rem">'+
     'XTB → '+instr.name+' → entry <strong>'+ep+'</strong> · SL <strong>'+sl+'</strong> · TP <strong>'+tp+'</strong> · lot <strong>'+instr.lot+'</strong>'+
     (!isNearEntry?'<br><span style="font-size:11px;color:var(--amber)">Ustaw zlecenie LIMIT w XTB na '+ep+'</span>':'')+
+    '<br><span style="font-size:11px;color:var(--muted2)">Trailing stop: gdy +'+tp+' pkt zysku → przesuń SL na entry</span>'+
     '</div>'+
     '<div class="imeta"><div class="mi">ryzyko: <span>'+risk+' PLN</span></div><div class="mi">cel: <span>+'+reward+' PLN</span></div><div class="mi">R:R <span>1:2</span></div></div>';
   var tgMsg='⚡ <b>'+dir.toUpperCase()+' '+instr.name+'</b>\nEntry ('+entryType+'): '+ep+'\nSL: '+sl+'\nTP: '+tp+'\nLot: '+instr.lot+'\n'+note+'\n\n➡️ Wpisz w XTB i zatwierdź';
@@ -509,6 +531,19 @@ async function scan(){
   for(var i=0;i<INSTRUMENTS.length;i++){
     var instr=INSTRUMENTS[i];
     try{
+      // Session filter
+      var session=isGoodSession();
+
+      // D1 - daily trend filter (only TD instruments)
+      var d1trend='NEUTRAL';
+      if(instr.src==='td'){
+        try{
+          var d1data=await fetchTD(instr.sym,'1day',100);
+          var d1=analyzeD1(d1data.closes);
+          d1trend=d1.trend;
+        }catch(e){d1trend='NEUTRAL';}
+      }
+
       // H1 - trend direction
       var data=instr.src==='yahoo'?await fetchYahoo(instr.sym):await fetchTD(instr.sym,'1h',200);
       var closes=data.closes,highs=data.highs,lows=data.lows,price=data.price,prev=data.prev;
@@ -539,6 +574,14 @@ async function scan(){
         }catch(e){m5entry=null;}
       }
 
+      // D1 filter - block counter-trend trades
+      var d1blocked=false;
+      var d1note='';
+      if(d1trend!=='NEUTRAL'){
+        if(dir==='LONG'&&d1trend==='DOWN'){d1blocked=true;d1note='⚠️ D1 trend spadkowy — ryzyko LONG zwiększone';}
+        if(dir==='SHORT'&&d1trend==='UP'){d1blocked=true;d1note='⚠️ D1 trend wzrostowy — ryzyko SHORT zwiększone';}
+      }
+
       if(dir==='LONG'||dir==='SHORT'){
         // Check M15 confirmation
         var m15confirms=true;
@@ -554,14 +597,19 @@ async function scan(){
           var dl=dir.toLowerCase();
           setBadge(instr.key,dl,dir);setCard(instr.key,dl);
           var entryPrice=m5entry||result.entryLevel||price;
+          var sessionNote=session.good?'':(session.london||session.ny?'':'
+⚠️ Poza sesją London/NY — sygnał słabszy');
+          var d1blockNote=d1blocked?('
+'+d1note):'';
           var fullNote=note+(m15?'
-M15: '+m15note:'');
+M15 RSI: '+m15note:'')+d1blockNote+sessionNote;
           renderSetup(instr,entryPrice,dl,fullNote,e20,e50,atrVal,result.entryLevel,result.slLevel,result.tpLevel);
         } else {
           forming++;
           setBadge(instr.key,'forming','czekaj M15');setCard(instr.key,'forming');
           var fNote=note+'
-⚠️ '+m15note;
+⚠️ '+m15note+(d1blocked?'
+'+d1note:'');
           renderForming(instr,price,fNote,e20,e50);
         }
       } else if(dir==='FORMING'){
