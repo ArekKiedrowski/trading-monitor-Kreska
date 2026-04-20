@@ -18,6 +18,12 @@ jobs:
           fi
 
           TS="$(date +'%Y-%m-%d %H:%M:%S')"
-          curl -s -X POST "$TG_WEBHOOK" \
-            -H "Content-Type: application/json" \
-            -d "{\"text\":\"✅ Test z GitHub Actions\nCzas: ${TS}\nRepo: $GITHUB_REPOSITORY\"}"
+
+          RESPONSE=$(curl -s -X POST "$TG_WEBHOOK" \
+            --data-urlencode "text=✅ Test z GitHub Actions
+Czas: ${TS}
+Repo: $GITHUB_REPOSITORY")
+
+          echo "$RESPONSE"
+
+          echo "$RESPONSE" | grep '"ok":true' >/dev/null || exit 1
