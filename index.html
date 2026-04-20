@@ -184,11 +184,18 @@ function setCard(id,sig){
   document.getElementById('card-'+id).className='icard'+(sig==='long'?' sig-long':sig==='short'?' sig-short':sig==='forming'?' forming':sig==='scan'?' scanning':'');
 }
 
-function addLog(instr,dir,detail){
+function addLog(instr,dir,detail,tgMsg){
   const t=waw();
   logs.unshift({time:t.str,instr,dir,detail});
   if(logs.length>30)logs.pop();
   renderLog();
+  if(tgMsg&&(dir==='long'||dir==='short')){
+    var sigKey=instr+dir;
+    if(lastSignals[sigKey]!==dir){
+      lastSignals[sigKey]=dir;
+      sendTelegram(tgMsg);
+    }
+  }
 }
 
 function renderLog(){
