@@ -1009,6 +1009,9 @@ async function scan(){
       }
 
       // ADX - trend strength
+      let adxVal=null,rocVal=null;
+      try{adxVal=adx(highs,lows,closes,14);}catch(e){}
+      try{rocVal=roc(closes,10);}catch(e){}
       if(adxVal){
         const adxStr=adxVal.toFixed(1);
         filters.push({label:'ADX: '+adxStr,cls:adxVal>=(instr.adxMin||20)?'ft-ok':adxVal>15?'ft-warn':'ft-bad'});
