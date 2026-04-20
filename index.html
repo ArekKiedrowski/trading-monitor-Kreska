@@ -143,7 +143,7 @@ const INSTRUMENTS=[
   {key:'eurusd',name:'EUR/USD', sym:'EUR/USD', src:'td',    sl:0.0015, tp:0.0030, dec:5, lot:0.05}
 ];
 
-let running=false, nextIn=0, logs=[], newsBlocked=false;
+let running=false, nextIn=0, logs=[], newsBlocked=false, lastSignals={};
 
 function sendTelegram(msg){
   fetch('https://api.telegram.org/bot'+TG_TOKEN+'/sendMessage',{
@@ -316,7 +316,11 @@ function renderSetup(instr,price,dir,note,e20,e50,atrVal){
     '<div class="xtb-row"><input class="xtb-input" id="'+inputId+'" type="number" placeholder="'+ep+'" step="'+step+'" oninput="calcXTB(\''+instr.key+'\',\''+dir+'\',\''+inputId+'\',\''+resultId+'\')">'+
     '<div class="xtb-result" id="'+resultId+'">wpisz cenę z XTB</div></div></div>'+
     '<div class="imeta"><div class="mi">ryzyko: <span>'+risk+' PLN</span></div><div class="mi">cel: <span>+'+reward+' PLN</span></div><div class="mi">R:R <span>1:2</span></div></div>';
-  addLog(instr.name,dir,'kierunek '+dir.toUpperCase()+' · SL '+instr.sl+'pkt · TP '+instr.tp+'pkt');
+  var isL=dir==='long';
+  var sl2=(isL?price-instr.sl:price+instr.sl).toFixed(instr.dec);
+  var tp2=(isL?price+instr.tp:price-instr.tp).toFixed(instr.dec);
+  var tgMsg='⚡ <b>'+dir.toUpperCase()+' '+instr.name+'</b>\nCena ref: '+price.toFixed(instr.dec)+'\nSL: '+sl2+' · TP: '+tp2+'\nLot: '+instr.lot+'\nWpisz cenę z XTB i zatwierdź!';
+  addLog(instr.name,dir,'kierunek '+dir.toUpperCase()+' · SL '+instr.sl+'pkt · TP '+instr.tp+'pkt',tgMsg);
 }
 
 function renderForming(instr,price,note,e20,e50){
@@ -402,6 +406,9 @@ async function scan(){
       } else {
         setBadge(instr.key,'wait','brak setupu');setCard(instr.key,'');
         document.getElementById('body-'+instr.key).innerHTML='';
+        delete lastSignals[instr.name+'long'];
+        delete lastSignals[instr.name+'short'];
+        delete lastSignals[instr.name+'forming'];
       }
     }catch(err){
       console.error(instr.name,err.message);
