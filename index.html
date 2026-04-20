@@ -136,22 +136,22 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 const TD_KEY='f9612fdd5fd54eb69c261b03fe3a409f';
 const TG_TOKEN='7980338718:AAFqiQTRwT99Qqql6SFNxgDQUBdJhk9dxtM';
 const TG_CHAT='1599380596';
- 
+
 const INSTRUMENTS=[
   {key:'us500', name:'US500',   sym:'^GSPC',   src:'yahoo', sl:20,     tp:40,     dec:1, lot:0.05},
   {key:'gold',  name:'GOLD',    sym:'XAU/USD', src:'td',    sl:25,     tp:50,     dec:1, lot:0.05},
   {key:'eurusd',name:'EUR/USD', sym:'EUR/USD', src:'td',    sl:0.0015, tp:0.0030, dec:5, lot:0.05}
 ];
- 
+
 let running=false, nextIn=0, logs=[], newsBlocked=false, lastSignals={};
- 
+
 function sendTelegram(msg){
   fetch('https://api.telegram.org/bot'+TG_TOKEN+'/sendMessage',{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({chat_id:TG_CHAT,text:msg,parse_mode:'HTML'})
   }).catch(()=>{});
 }
- 
+
 function waw(){
   const now=new Date(),tz='Europe/Warsaw';
   const g=t=>parseInt(new Intl.DateTimeFormat('pl-PL',{timeZone:tz,[t]:'2-digit',hour12:false}).format(now));
@@ -159,7 +159,7 @@ function waw(){
   const dow=new Intl.DateTimeFormat('pl-PL',{timeZone:tz,weekday:'long'}).format(now);
   return{h,m,total:h*60+m,str:`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`,active:h>=8&&h<24,dow};
 }
- 
+
 function tick(){
   const t=waw();
   const el=document.getElementById('clock');
@@ -167,12 +167,12 @@ function tick(){
   document.getElementById('daytxt').textContent=t.dow;
   if(running&&nextIn>0){nextIn--;document.getElementById('nscan').textContent=`skan za ${nextIn}s`;if(nextIn<=0)scan();}
 }
- 
+
 function updateRisk(){
   const cap=parseFloat(document.getElementById('capital').value)||10000;
   document.getElementById('rsub').textContent=`Ryzyko/trade: ${(cap*0.02).toFixed(0)} PLN`;
 }
- 
+
 function setDot(t){document.getElementById('dot').className='dot'+(t==='live'?' live':t==='wait'?' wait':'');}
 function setTxt(t){document.getElementById('stxt').textContent=t;}
 function setBadge(id,cls,txt){
@@ -183,7 +183,7 @@ function setBadge(id,cls,txt){
 function setCard(id,sig){
   document.getElementById('card-'+id).className='icard'+(sig==='long'?' sig-long':sig==='short'?' sig-short':sig==='forming'?' forming':sig==='scan'?' scanning':'');
 }
- 
+
 function addLog(instr,dir,detail,tgMsg){
   const t=waw();
   logs.unshift({time:t.str,instr,dir,detail});
@@ -197,13 +197,13 @@ function addLog(instr,dir,detail,tgMsg){
     }
   }
 }
- 
+
 function renderLog(){
   const b=document.getElementById('logbox');
   if(!logs.length){b.innerHTML='<div class="lempty">Brak sygnałów</div>';return;}
   b.innerHTML=logs.map(e=>`<div class="lrow"><span class="lt">${e.time}</span><span class="li">${e.instr}</span><span class="ld ${e.dir}">${e.dir==='forming'?'FORMING':e.dir.toUpperCase()}</span><span class="ldet">${e.detail}</span></div>`).join('');
 }
- 
+
 function ema(data,period){
   if(data.length<period)return null;
   const k=2/(period+1);
@@ -211,7 +211,7 @@ function ema(data,period){
   for(let i=period;i<data.length;i++)e=data[i]*k+e*(1-k);
   return e;
 }
- 
+
 function atr(highs,lows,closes,period){
   period=period||14;
   if(closes.length<period+1)return null;
@@ -220,7 +220,7 @@ function atr(highs,lows,closes,period){
     trs.push(Math.max(highs[i]-lows[i],Math.abs(highs[i]-closes[i-1]),Math.abs(lows[i]-closes[i-1])));
   return trs.slice(-period).reduce(function(a,b){return a+b;},0)/period;
 }
- 
+
 function findSupport(lows, closes, lookback){
   // Find nearest swing low in last N candles
   var n=Math.min(lookback||20, lows.length-1);
@@ -234,7 +234,7 @@ function findSupport(lows, closes, lookback){
   }
   return best;
 }
- 
+
 function findResistance(highs, closes, lookback){
   // Find nearest swing high in last N candles
   var n=Math.min(lookback||20, highs.length-1);
@@ -248,7 +248,7 @@ function findResistance(highs, closes, lookback){
   }
   return best;
 }
- 
+
 function analyze(closes,highs,lows){
   if(!closes||closes.length<30)return{dir:'NO_SIGNAL',note:'za mało danych'};
   var e20=ema(closes,20),e50=ema(closes,50);
@@ -314,7 +314,7 @@ function analyze(closes,highs,lows){
   }
   return{dir:dir,note:note,e20:e20,e50:e50,atrVal:atrVal,price:price,entryLevel:entryLevel,slLevel:slLevel,tpLevel:tpLevel};
 }
- 
+
 async function fetchYahoo(sym){
   var yahooUrl='https://query1.finance.yahoo.com/v8/finance/chart/'+sym+'?interval=1h&range=30d';
   var proxies=[
@@ -342,9 +342,11 @@ async function fetchYahoo(sym){
   }
   throw new Error('Proxy failed: '+lastErr.message);
 }
- 
-async function fetchTD(sym){
-  var url='https://api.twelvedata.com/time_series?symbol='+encodeURIComponent(sym)+'&interval=1h&outputsize=500&apikey='+TD_KEY;
+
+async function fetchTD(sym,interval,outputsize){
+  interval=interval||'1h';
+  outputsize=outputsize||500;
+  var url='https://api.twelvedata.com/time_series?symbol='+encodeURIComponent(sym)+'&interval='+interval+'&outputsize='+outputsize+'&apikey='+TD_KEY;
   var r=await fetch(url);
   var d=await r.json();
   if(d.status==='error')throw new Error(d.message);
@@ -357,7 +359,50 @@ async function fetchTD(sym){
   var prev=parseFloat(values[1].close);
   return{closes:closes,highs:highs,lows:lows,price:price,prev:prev};
 }
- 
+
+function rsi(closes,period){
+  period=period||14;
+  if(closes.length<period+1)return null;
+  var gains=0,losses=0;
+  for(var i=closes.length-period;i<closes.length;i++){
+    var diff=closes[i]-closes[i-1];
+    if(diff>0)gains+=diff; else losses+=Math.abs(diff);
+  }
+  var avgGain=gains/period,avgLoss=losses/period;
+  if(avgLoss===0)return 100;
+  var rs=avgGain/avgLoss;
+  return 100-(100/(1+rs));
+}
+
+function analyzeM15(closes,highs,lows){
+  if(!closes||closes.length<20)return{confirm:false,note:'za mało danych M15'};
+  var rsiVal=rsi(closes,14);
+  var price=closes[closes.length-1];
+  var prevPrice=closes[closes.length-3];
+  var e9=ema(closes,9),e21=ema(closes,21);
+  var rsiOB=rsiVal>65,rsiOS=rsiVal<35;
+  var priceUp=price>prevPrice,priceDown=price<prevPrice;
+  return{
+    rsi:rsiVal?rsiVal.toFixed(1):null,
+    e9:e9,e21:e21,
+    overbought:rsiOB,
+    oversold:rsiOS,
+    priceUp:priceUp,
+    priceDown:priceDown
+  };
+}
+
+function analyzeM5(closes,highs,lows){
+  if(!closes||closes.length<10)return{entry:null};
+  var price=closes[closes.length-1];
+  var prev1=closes[closes.length-2];
+  var prev2=closes[closes.length-3];
+  // Look for reversal candle
+  var bearish=prev1>prev2&&price<prev1; // price turned down
+  var bullish=prev1<prev2&&price>prev1; // price turned up
+  return{entry:price,bearish:bearish,bullish:bullish};
+}
+
 function calcXTB(key,dir,inputId,resultId){
   var instr=INSTRUMENTS.find(function(i){return i.key===key;});
   var price=parseFloat(document.getElementById(inputId).value);
@@ -367,7 +412,7 @@ function calcXTB(key,dir,inputId,resultId){
   var tp=(isL?price+instr.tp:price-instr.tp).toFixed(instr.dec);
   document.getElementById(resultId).innerHTML='Entry <strong>'+price.toFixed(instr.dec)+'</strong> · SL <strong>'+sl+'</strong> · TP <strong>'+tp+'</strong> · lot <strong>'+instr.lot+'</strong>';
 }
- 
+
 function renderSetup(instr,price,dir,note,e20,e50,atrVal,entryLevel,slLevel,tpLevel){
   var cap=parseFloat(document.getElementById('capital').value)||10000;
   var risk=(cap*0.02).toFixed(0),reward=(cap*0.04).toFixed(0);
@@ -401,7 +446,7 @@ function renderSetup(instr,price,dir,note,e20,e50,atrVal,entryLevel,slLevel,tpLe
   var tgMsg='⚡ <b>'+dir.toUpperCase()+' '+instr.name+'</b>\nEntry ('+entryType+'): '+ep+'\nSL: '+sl+'\nTP: '+tp+'\nLot: '+instr.lot+'\n'+note+'\n\n➡️ Wpisz w XTB i zatwierdź';
   addLog(instr.name,dir,'Entry '+ep+' · SL '+sl+' · TP '+tp,tgMsg);
 }
- 
+
 function renderForming(instr,price,note,e20,e50){
   var ep=price.toFixed(instr.dec);
   var e20str=e20?e20.toFixed(instr.dec>1?instr.dec:1):'—';
@@ -415,7 +460,7 @@ function renderForming(instr,price,note,e20,e50){
     '<div class="forming-msg">Setup się formuje — czekaj na potwierdzenie.<br>'+note+'</div>';
   addLog(instr.name,'forming','@ '+ep+' — '+note);
 }
- 
+
 async function loadCalendar(){
   var t=waw();
   try{
@@ -452,7 +497,7 @@ async function loadCalendar(){
     document.getElementById('cal-section').innerHTML='<div class="lempty">Sprawdź ręcznie: investing.com/economic-calendar</div>';
   }
 }
- 
+
 async function scan(){
   var t=waw();
   await loadCalendar();
@@ -464,7 +509,8 @@ async function scan(){
   for(var i=0;i<INSTRUMENTS.length;i++){
     var instr=INSTRUMENTS[i];
     try{
-      var data=instr.src==='yahoo'?await fetchYahoo(instr.sym):await fetchTD(instr.sym);
+      // H1 - trend direction
+      var data=instr.src==='yahoo'?await fetchYahoo(instr.sym):await fetchTD(instr.sym,'1h',200);
       var closes=data.closes,highs=data.highs,lows=data.lows,price=data.price,prev=data.prev;
       document.getElementById('price-'+instr.key).textContent=price.toFixed(instr.dec);
       var chg=prev?((price-prev)/prev*100):0;
@@ -473,11 +519,51 @@ async function scan(){
       cel.className='ichange '+(chg>=0?'up':'down');
       var result=analyze(closes,highs,lows);
       var dir=result.dir,note=result.note,e20=result.e20,e50=result.e50,atrVal=result.atrVal;
+
+      // M15 - confirmation (only for TD instruments)
+      var m15data=null,m15=null;
+      if(instr.src==='td'&&(dir==='LONG'||dir==='SHORT')){
+        try{
+          m15data=await fetchTD(instr.sym,'15min',100);
+          m15=analyzeM15(m15data.closes,m15data.highs,m15data.lows);
+        }catch(e){m15=null;}
+      }
+
+      // M5 - entry (only when M15 confirms)
+      var m5entry=null;
+      if(m15&&instr.src==='td'){
+        try{
+          var m5data=await fetchTD(instr.sym,'5min',50);
+          var m5=analyzeM5(m5data.closes,m5data.highs,m5data.lows);
+          m5entry=m5.entry;
+        }catch(e){m5entry=null;}
+      }
+
       if(dir==='LONG'||dir==='SHORT'){
-        sigs++;
-        var dl=dir.toLowerCase();
-        setBadge(instr.key,dl,dir);setCard(instr.key,dl);
-        renderSetup(instr,price,dl,note,e20,e50,atrVal,result.entryLevel,result.slLevel,result.tpLevel);
+        // Check M15 confirmation
+        var m15confirms=true;
+        var m15note='';
+        if(m15){
+          if(dir==='LONG'&&m15.overbought){m15confirms=false;m15note='RSI M15='+m15.rsi+' wykupiony — czekaj na pullback';}
+          else if(dir==='SHORT'&&m15.oversold){m15confirms=false;m15note='RSI M15='+m15.rsi+' wyprzedany — czekaj na odbicie';}
+          else{m15note='RSI M15='+m15.rsi+(dir==='SHORT'&&parseFloat(m15.rsi)>50?' ↓ momentum':(dir==='LONG'&&parseFloat(m15.rsi)<50?' ↑ momentum':''));}
+        }
+
+        if(m15confirms){
+          sigs++;
+          var dl=dir.toLowerCase();
+          setBadge(instr.key,dl,dir);setCard(instr.key,dl);
+          var entryPrice=m5entry||result.entryLevel||price;
+          var fullNote=note+(m15?'
+M15: '+m15note:'');
+          renderSetup(instr,entryPrice,dl,fullNote,e20,e50,atrVal,result.entryLevel,result.slLevel,result.tpLevel);
+        } else {
+          forming++;
+          setBadge(instr.key,'forming','czekaj M15');setCard(instr.key,'forming');
+          var fNote=note+'
+⚠️ '+m15note;
+          renderForming(instr,price,fNote,e20,e50);
+        }
       } else if(dir==='FORMING'){
         forming++;
         setBadge(instr.key,'forming','forming...');setCard(instr.key,'forming');
@@ -502,9 +588,9 @@ async function scan(){
   else setTxt('Brak setupów — skan za '+interval+' min');
   schedNext();
 }
- 
+
 function schedNext(){if(!running)return;var i=parseInt(document.getElementById('scanmin').value)||5;nextIn=i*60;}
- 
+
 function toggleMonitor(){
   if(running){
     running=false;nextIn=0;
@@ -520,7 +606,7 @@ function toggleMonitor(){
     scan();
   }
 }
- 
+
 function scanNow(){nextIn=0;scan();}
 loadCalendar();
 setInterval(tick,1000);tick();updateRisk();
