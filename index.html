@@ -508,7 +508,7 @@ function analyzeH1(closes,highs,lows){
   const volOk=atrPct>0.2;
   const aboveEMA=price>e20&&price>e50;
   const belowEMA=price<e20&&price<e50;
-  const dec=price>100?1:price>1?2:5;
+  const dec=price>100?1:price>1?4:5;
   const fmt=v=>v?v.toFixed(dec):'?';
   let dir='NO_SIGNAL',note='',entryLevel=null,slLevel=null,tpLevel=null;
   if(trendUp&&mom>0&&aboveEMA){
