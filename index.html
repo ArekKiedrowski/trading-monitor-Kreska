@@ -277,6 +277,7 @@ async function fetchTD(symbol){
   const r=await fetch(url);
   const d=await r.json();
   if(d.status==='error')throw new Error(d.message);
+  if(!d.values||!Array.isArray(d.values)||d.values.length<2)throw new Error('brak danych: '+JSON.stringify(d).slice(0,100));
   const values=d.values;
   const closes=values.map(v=>parseFloat(v.close)).reverse();
   const highs=values.map(v=>parseFloat(v.high)).reverse();
@@ -428,8 +429,9 @@ async function scan(){
         document.getElementById('body-'+key).innerHTML='';
       }
     }catch(e){
-      setBadge(key,'wait','błąd danych');setCard(key,'');
-      document.getElementById('body-'+key).innerHTML='';
+      console.error(c.name, e.message);
+      setBadge(key,'wait','błąd: '+e.message.slice(0,20));setCard(key,'');
+      document.getElementById('body-'+key).innerHTML=`<div style="font-size:11px;color:var(--muted2);margin-top:8px">${e.message}</div>`;
     }
   }
 
