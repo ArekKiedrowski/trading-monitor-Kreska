@@ -910,7 +910,7 @@ async function scan(){
   for(const instr of INSTRUMENTS){
     try{
       // H1 — trend direction
-      const data=instr.src==='yahoo'?await fetchYahoo(instr.sym):await fetchTD(instr.sym,'1h',200);
+      const data=instr.src==='yahoo'?await fetchYahoo(instr.sym):await fetchTD(instr.sym,'1h',100);
       const {closes,highs,lows,price,prev}=data;
       document.getElementById('price-'+instr.key).textContent=price.toFixed(instr.dec);
       const chg=prev?((price-prev)/prev*100):0;
@@ -1034,8 +1034,8 @@ async function scan(){
         }
       }
 
-      // Count warnings
-      const warnings=filters.filter(f=>f.cls==='ft-warn'||f.cls==='ft-bad').length;
+      // Count warnings (recalculate after all filters added)
+      let warnings=filters.filter(f=>f.cls==='ft-warn'||f.cls==='ft-bad').length;
 
       if(h1.dir==='LONG'||h1.dir==='SHORT'){
         // Use instrument-specific RSI thresholds
