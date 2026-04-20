@@ -1022,7 +1022,8 @@ async function scan(){
       }
 
       // ATR% volatility check
-      if(!atrPctOk){filters.push({label:'Low Vol',cls:'ft-warn'});}
+      const atrPctVal=h1.atrVal?(h1.atrVal/h1.price*100):0;
+      if(atrPctVal>0&&atrPctVal<(instr.atrPctMin||0.15)){filters.push({label:'Low Vol',cls:'ft-warn'});}
 
       // Liquidity sweep detection
       if(h1.dir==='LONG'||h1.dir==='SHORT'){
