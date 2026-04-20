@@ -705,33 +705,38 @@ function renderForming(instr,price,note,e20,e50,filters,h1result){
 
   // What are we waiting for?
   let waitingFor='';
-  const atr=(h1result&&h1result.atrVal)||0;
+  const atrVal=(h1result&&h1result.atrVal&&h1result.atrVal>0)?h1result.atrVal:null;
   const dec=instr.dec;
   const trendUp=e20&&e50&&e20>e50;
   const trendDown=e20&&e50&&e20<e50;
   if(trendUp){
-    const targetPrice=e20?(e20+atr*0.5).toFixed(dec):null;
-    const slTarget=e20?(e20-atr*0.8).toFixed(dec):null;
-    const tpTarget=e20?(e20+atr*2).toFixed(dec):null;
+    // Use instrument SL/TP if ATR not available
+    const slPts=atrVal?atrVal*0.8:instr.sl;
+    const tpPts=atrVal?atrVal*2:instr.tp;
+    const entryTarget=e20?(e20).toFixed(dec):null;
+    const slTarget=e20?(e20-slPts).toFixed(dec):null;
+    const tpTarget=e20?(e20+tpPts).toFixed(dec):null;
     waitingFor='📍 Kierunek: <strong>LONG</strong><br>'+
       'Czekam na: wzmocnienie trendu i cena > EMA20<br>'+
       'Obserwuj poziom: <strong>'+e20s+'</strong>'+
-      (targetPrice?'<br>Potencjalny entry: <strong>'+targetPrice+'</strong>':'')+
-      (slTarget&&tpTarget?'<br>Wstępny SL: <strong>'+slTarget+'</strong> · TP: <strong>'+tpTarget+'</strong>':'');
+      (entryTarget?'<br>Potencjalny entry: <strong>'+entryTarget+'</strong>':'')+
+      (slTarget&&tpTarget?'<br>Wstępny SL: <span style="color:var(--red)">'+slTarget+'</span> · TP: <span style="color:var(--green)">'+tpTarget+'</span>':'');
   } else if(trendDown){
-    const targetPrice=e20?(e20-atr*0.5).toFixed(dec):null;
-    const slTarget=e20?(e20+atr*0.8).toFixed(dec):null;
-    const tpTarget=e20?(e20-atr*2).toFixed(dec):null;
+    const slPts=atrVal?atrVal*0.8:instr.sl;
+    const tpPts=atrVal?atrVal*2:instr.tp;
+    const entryTarget=e20?(e20).toFixed(dec):null;
+    const slTarget=e20?(e20+slPts).toFixed(dec):null;
+    const tpTarget=e20?(e20-tpPts).toFixed(dec):null;
     waitingFor='📍 Kierunek: <strong>SHORT</strong><br>'+
       'Czekam na: wzmocnienie trendu i cena < EMA20<br>'+
       'Obserwuj poziom: <strong>'+e20s+'</strong>'+
-      (targetPrice?'<br>Potencjalny entry: <strong>'+targetPrice+'</strong>':'')+
-      (slTarget&&tpTarget?'<br>Wstępny SL: <strong>'+slTarget+'</strong> · TP: <strong>'+tpTarget+'</strong>':'');
+      (entryTarget?'<br>Potencjalny entry: <strong>'+entryTarget+'</strong>':'')+
+      (slTarget&&tpTarget?'<br>Wstępny SL: <span style="color:var(--red)">'+slTarget+'</span> · TP: <span style="color:var(--green)">'+tpTarget+'</span>':'');
   } else {
     const crossDist=e20&&e50?Math.abs(e20-e50).toFixed(dec):null;
     waitingFor='📍 Brak wyraźnego trendu<br>'+
       'Czekam na: przecięcie EMA20/EMA50'+
-      (crossDist?'<br>Odległość EMA: <strong>'+crossDist+'</strong> pkt':'');
+      (crossDist?'<br>Odległość EMA: <strong>'+crossDist+'</strong>':'');
   }
 
   document.getElementById('body-'+instr.key).innerHTML=
