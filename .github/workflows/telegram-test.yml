@@ -20,9 +20,7 @@ jobs:
           TS="$(date +'%Y-%m-%d %H:%M:%S')"
 
           RESPONSE=$(curl -s -X POST "$TG_WEBHOOK" \
-            --data-urlencode "text=✅ Test z GitHub Actions
-Czas: ${TS}
-Repo: $GITHUB_REPOSITORY")
+            --data-urlencode "text=✅ Test z GitHub Actions\nCzas: ${TS}\nRepo: $GITHUB_REPOSITORY")
 
           echo "$RESPONSE"
 
