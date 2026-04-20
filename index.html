@@ -577,6 +577,35 @@ async function loadCOT(){
     document.getElementById('cot-mid').textContent=(bullPct>60?'Bycze':bullPct<40?'Niedźwiedzie':'Neutralne')+' ('+momentum+'%)';
   }catch(e){document.getElementById('cot-title').textContent='COT: sprawdź barchart.com/commitment-of-traders';}
 }
+// Per-instrument news blocking rules
+const NEWS_RULES={
+  us500:{
+    keywords:['Fed','FOMC','CPI','NFP','Nonfarm','GDP','ISM','Unemployment','Retail Sales','PPI'],
+    countries:['USD'],impacts:['High','Medium']
+  },
+  gold:{
+    keywords:['Fed','FOMC','CPI','NFP','Nonfarm','GDP','Interest Rate','Inflation','Real','PPI'],
+    countries:['USD'],impacts:['High']  // gold only High impact
+  },
+  eurusd:{
+    keywords:['Fed','FOMC','CPI','NFP','Nonfarm','GDP','ISM','ECB','Interest Rate','PMI','Inflation','Unemployment'],
+    countries:['USD','EUR'],impacts:['High','Medium']
+  }
+};
+
+let newsBlockedPerInstr={us500:false,gold:false,eurusd:false};
+let calendarEvents=[];
+
+function isEventBlockingInstr(ev,instrKey,nowMin){
+  const rule=NEWS_RULES[instrKey];
+  if(!rule)return false;
+  if(!rule.countries.includes(ev.country))return false;
+  if(!rule.impacts.includes(ev.impact))return false;
+  const keyMatch=rule.keywords.some(k=>ev.title&&ev.title.toLowerCase().includes(k.toLowerCase()));
+  if(!keyMatch&&ev.impact!=='High')return false; // always block High regardless of keyword
+  return true;
+}
+
 async function loadCalendar(){
   const t=waw();
   try{
@@ -588,22 +617,48 @@ async function loadCalendar(){
       return new Date(e.date).toISOString().split('T')[0]===todayStr&&
         (e.impact==='High'||e.impact==='Medium')&&(e.country==='USD'||e.country==='EUR');
     });
+    calendarEvents=todayEvs;
     newsBlocked=false;
+    newsBlockedPerInstr={us500:false,gold:false,eurusd:false};
+
     if(!todayEvs.length){
       document.getElementById('cal-section').innerHTML='<div class="cal-event"><span class="cal-name" style="color:var(--green)">Brak ważnych danych dziś</span></div>';
       document.getElementById('news-block').classList.remove('visible');return;
     }
+
     let html='';
     todayEvs.forEach(ev=>{
       const evTime=new Date(ev.date);
       const wH=parseInt(new Intl.DateTimeFormat('pl-PL',{timeZone:'Europe/Warsaw',hour:'2-digit',hour12:false}).format(evTime));
       const wM=parseInt(new Intl.DateTimeFormat('pl-PL',{timeZone:'Europe/Warsaw',minute:'2-digit'}).format(evTime));
-      const diff=(wH*60+wM)-t.total;
-      if(diff>=-30&&diff<=30)newsBlocked=true;
-      html+='<div class="cal-event"><span class="cal-time">'+String(wH).padStart(2,'0')+':'+String(wM).padStart(2,'0')+'</span><span class="cal-name">'+ev.title+' ('+ev.country+')</span><span class="cal-imp '+(ev.impact==='High'?'imp-high':'imp-med')+'">'+ev.impact+'</span></div>';
+      const nowMin=t.total;
+      const evMin=wH*60+wM;
+      const diff=evMin-nowMin;
+      const inWindow=diff>=-30&&diff<=30;
+
+      // Check per-instrument blocking
+      ['us500','gold','eurusd'].forEach(key=>{
+        if(inWindow&&isEventBlockingInstr(ev,key,nowMin)){
+          newsBlockedPerInstr[key]=true;
+          newsBlocked=true;
+        }
+      });
+
+      // Build blocked instruments label
+      const blockedFor=['us500','gold','eurusd'].filter(k=>inWindow&&isEventBlockingInstr(ev,k,nowMin)).map(k=>INSTRUMENTS.find(i=>i.key===k).name).join(', ');
+      const blockLabel=blockedFor?'<span style="font-size:10px;color:var(--red);margin-left:4px">blokuje: '+blockedFor+'</span>':'';
+
+      html+='<div class="cal-event"><span class="cal-time">'+String(wH).padStart(2,'0')+':'+String(wM).padStart(2,'0')+'</span><span class="cal-name">'+ev.title+' ('+ev.country+')'+blockLabel+'</span><span class="cal-imp '+(ev.impact==='High'?'imp-high':'imp-med')+'">'+ev.impact+'</span></div>';
     });
+
     document.getElementById('cal-section').innerHTML=html;
-    document.getElementById('news-block').classList[newsBlocked?'add':'remove']('visible');
+    if(newsBlocked){
+      const blocked=Object.entries(newsBlockedPerInstr).filter(([k,v])=>v).map(([k])=>INSTRUMENTS.find(i=>i.key===k).name).join(', ');
+      document.getElementById('news-block').textContent='📰 NEWS BLOCK — blokuje: '+blocked+' (±30 min od eventu)';
+      document.getElementById('news-block').classList.add('visible');
+    } else {
+      document.getElementById('news-block').classList.remove('visible');
+    }
   }catch(e){document.getElementById('cal-section').innerHTML='<div class="lempty">Sprawdź: investing.com/economic-calendar</div>';}
 }
 
@@ -766,6 +821,14 @@ async function scan(){
 
   for(const instr of INSTRUMENTS){
     try{
+      // Per-instrument news block
+      if(newsBlockedPerInstr[instr.key]){
+        setBadge(instr.key,'b-scan','📰 NEWS');
+        setCard(instr.key,'');
+        document.getElementById('body-'+instr.key).innerHTML='<div style="font-size:12px;color:var(--red);padding:8px">📰 Blokada newsów — nie wchodzisz teraz</div>';
+        continue;
+      }
+
       // H1 data
       const data=instr.src==='yahoo'?await fetchYahoo(instr.sym):await fetchTD(instr.sym,'1h',100);
       const{closes,highs,lows,price,prev}=data;
@@ -871,8 +934,11 @@ async function scan(){
 
   const interval=parseInt(document.getElementById('scanmin').value)||5;
   setDot(actives>0?'live':forming>0?'wait':'');
-  if(actives>0)setTxt(actives+' ACTIVE — sprawdź XTB');
-  else if(forming>0)setTxt(forming+' forming — skan za '+interval+' min');
+  const blockedCount=Object.values(newsBlockedPerInstr).filter(v=>v).length;
+  if(blockedCount>0)setDot('wait');
+  if(actives>0)setTxt(actives+' ACTIVE — sprawdź XTB'+(blockedCount>0?' | '+blockedCount+' zablokowane':''));
+  else if(forming>0)setTxt(forming+' forming — skan za '+interval+' min'+(blockedCount>0?' | '+blockedCount+' news block':''));
+  else if(blockedCount>0)setTxt('NEWS BLOCK na '+blockedCount+' instrumencie');
   else setTxt('Brak setupów — skan za '+interval+' min');
   schedNext();
 }
