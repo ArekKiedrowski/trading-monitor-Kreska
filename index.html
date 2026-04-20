@@ -5,168 +5,116 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Trading Monitor 2.0</title>
 <style>
-:root{--bg:#0d0f14;--bg2:#161920;--text:#e2e6f0;--muted:#8892a4;--green:#10b981;--red:#ef4444;--amber:#f59e0b}
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;padding:1rem}
-.wrap{max-width:580px;margin:auto}
-.top{display:flex;justify-content:space-between;align-items:start}
-.clock{font-size:36px;font-weight:300}
-.news-block{padding:14px;background:rgba(239,68,68,0.15);border:1px solid #ef4444;border-radius:10px;margin:15px 0;color:#ef4444;font-weight:600;display:none}
-.news-block.visible{display:block}
-.status{padding:12px 16px;background:var(--bg2);border-radius:10px;margin:15px 0;display:flex;align-items:center;gap:12px}
-.dot{width:12px;height:12px;border-radius:50%;background:#555}
-.dot.live{background:var(--green)}
-.instruments{display:flex;flex-direction:column;gap:12px;margin-top:10px}
-.card{background:var(--bg2);padding:16px;border-radius:12px;border:1px solid #333}
-.card.long{border-color:var(--green)}
-.card.short{border-color:var(--red)}
-.card.forming{border-color:var(--amber)}
-.name{font-size:18px;font-weight:600}
-.price{font-size:17px}
-.conf{font-size:15px;font-weight:500;margin:8px 0}
-.badge{padding:4px 12px;border-radius:20px;font-size:13px;font-weight:600}
-.b-long{background:rgba(16,185,129,0.25);color:var(--green)}
-.b-short{background:rgba(239,68,68,0.25);color:var(--red)}
-.b-forming{background:rgba(245,158,11,0.25);color:var(--amber)}
-.log{margin-top:25px;background:var(--bg2);padding:15px;border-radius:12px;max-height:320px;overflow-y:auto;font-size:13px}
+:root {
+  --bg: #0d0f14;
+  --bg2: #161920;
+  --text: #e2e6f0;
+  --muted: #8892a4;
+  --green: #10b981;
+  --red: #ef4444;
+  --amber: #f59e0b;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, sans-serif;
+  padding: 1rem;
+  min-height: 100vh;
+}
+.wrap { max-width: 620px; margin: 0 auto; }
+h1 { font-size: 22px; margin-bottom: 4px; }
+.status {
+  padding: 14px 18px;
+  background: var(--bg2);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 15px 0;
+  font-size: 15px;
+}
+.dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #555;
+  flex-shrink: 0;
+}
+.dot.live { background: var(--green); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+.cards { display: flex; flex-direction: column; gap: 12px; }
+.card {
+  background: var(--bg2);
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid #333;
+}
+.card.long { border-color: var(--green); }
+.card.short { border-color: var(--red); }
+.card.forming { border-color: var(--amber); }
+.name { font-size: 18px; font-weight: 600; }
+.price { font-size: 17px; float: right; }
+.conf { margin: 10px 0 6px; font-size: 15px; font-weight: 500; }
+.badge {
+  display: inline-block;
+  padding: 5px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+.b-long { background: rgba(16,185,129,0.25); color: var(--green); }
+.b-short { background: rgba(239,68,68,0.25); color: var(--red); }
+.b-forming { background: rgba(245,158,11,0.25); color: var(--amber); }
+.log {
+  margin-top: 30px;
+  background: var(--bg2);
+  border-radius: 12px;
+  padding: 16px;
+  font-size: 13.5px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+button {
+  width: 100%;
+  padding: 16px;
+  font-size: 17px;
+  font-weight: 600;
+  border: none;
+  border-radius: 12px;
+  margin: 10px 0 20px;
+  cursor: pointer;
+}
+.start-btn { background: var(--green); color: white; }
+.stop-btn { background: var(--red); color: white; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="top">
-    <div>
-      <h1>Trading Monitor 2.0</h1>
-      <p>US500 • GOLD • EUR/USD — 8:00–24:00</p>
-    </div>
-    <div class="clock" id="clock">22:02</div>
-  </div>
-
-  <div class="news-block" id="news-block">NEWS BLOCK — High Impact USD w ciągu 30 min. Sygnały zablokowane.</div>
+  <h1>Trading Monitor 2.0</h1>
+  <p style="color:var(--muted)">US500 • GOLD • EUR/USD — 8:00–24:00</p>
 
   <div class="status">
-    <div class="dot live" id="dot"></div>
-    <span id="status-text">1 setup formuje się — skan za 5 min</span>
+    <div class="dot" id="dot"></div>
+    <span id="status">Gotowy — kliknij Start Monitoring</span>
   </div>
 
-  <div class="instruments" id="cards"></div>
+  <button id="mainBtn" class="start-btn" onclick="toggleMonitor()">▶ Start Monitoring</button>
 
-  <div class="log" id="log"></div>
+  <div class="cards" id="cards"></div>
 
-  <div style="text-align:center;margin-top:30px;font-size:12px;color:#666">
-    System 2.0 • Confidence Score + ADX + DXY + News Block
+  <div class="log" id="log">
+    <div style="color:var(--muted);text-align:center;padding:20px">Log sygnałów będzie się tutaj pojawiał</div>
   </div>
+
+  <p style="text-align:center;margin-top:40px;font-size:12px;color:#555">
+    System 2.0 • Confidence Score + ADX + News Block<br>
+    Tylko konto demo • Decyzja należy do Ciebie
+  </p>
 </div>
 
 <script>
-// ==================== KONFIG + KLUCZE ====================
+// ==================== KONFIG ====================
 const TD_KEY = 'f9612fdd5fd54eb69c261b03fe3a409f';
-const TG_TOKEN = '7980338718:AAFqiQTRwT99Qqql6SFNxgDQUBdJhk9dxtM';
-const TG_CHAT = '1599380596';
-
-const INSTRUMENTS = [
-  {key:'us500', name:'US500', sym:'^GSPC', src:'yahoo', atrMin:0.18, adxMin:25, rsiHigh:68, rsiLow:38},
-  {key:'gold',  name:'GOLD',  sym:'XAU/USD', src:'td', atrMin:0.25, adxMin:25, rsiHigh:68, rsiLow:32},
-  {key:'eurusd',name:'EUR/USD', sym:'EUR/USD', src:'td', atrMin:0.09, adxMin:22, rsiHigh:65, rsiLow:35}
-];
-
-let running = true;
-
-// ==================== POMOCNICZE ====================
-function getTime() {
-  const d = new Date();
-  return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
-}
-
-function sendTelegram(text) {
-  fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({chat_id:TG_CHAT, text, parse_mode:'HTML'})
-  });
-}
-
-// ==================== WSKAŹNIKI (uproszczone, ale skuteczne) ====================
-function ema(data, p) { /* uproszczone */ return data[data.length-1]; }
-function atr() { return 12; } // placeholder - w realu licz poprawnie
-function adx() { return 24; }
-
-// ==================== CONFIDENCE SCORE (klucz System 2.0) ====================
-function getConfidence(dir, adxVal, atrPct, d1Trend, sessionGood, vix, dxyGood) {
-  let score = 50;
-
-  if (adxVal >= 25) score += 13;
-  else if (adxVal >= 20) score += 6;
-  else score -= 18;
-
-  if (atrPct < 0.15) score -= 14;
-
-  if (d1Trend === 'aligned') score += 15;
-  else if (d1Trend === 'against') score -= 15;
-
-  if (sessionGood) score += 8; else score -= 9;
-
-  if (dir === 'LONG' && dxyGood) score += 9;
-
-  return Math.max(10, Math.min(100, Math.round(score)));
-}
-
-// ==================== SKAN ====================
-async function scan() {
-  document.getElementById('status-text').textContent = 'Skanowanie...';
-  document.getElementById('dot').classList.add('live');
-
-  const cardsHTML = [];
-
-  for (const instr of INSTRUMENTS) {
-    // Symulacja danych (w realnej wersji zastąp fetch)
-    const price = instr.key === 'eurusd' ? 1.1786 : instr.key === 'gold' ? 4813 : 7109;
-    const adxVal = 24;
-    const atrPct = 0.11;
-    const dir = instr.key === 'eurusd' ? 'LONG' : 'FLAT';
-    const d1Aligned = true;
-    const sessionGood = false; // Off-session
-    const dxyGood = true;
-
-    const confidence = getConfidence(dir, adxVal, atrPct, d1Aligned ? 'aligned' : 'against', sessionGood, 19.1, dxyGood);
-
-    let state = 'FLAT';
-    let badge = '';
-    if (confidence >= 78 && dir !== 'FLAT') {
-      state = dir;
-      badge = `<span class="badge b-long">LONG ${confidence}</span>`;
-    } else if (confidence >= 60) {
-      state = 'FORMING';
-      badge = `<span class="badge b-forming">FORMING ${confidence}</span>`;
-    } else {
-      badge = `<span class="badge" style="background:#333">brak setupu</span>`;
-    }
-
-    let html = `
-      <div class="card ${state.toLowerCase()}">
-        <div class="name">${instr.name} <span style="float:right">${price}</span></div>
-        ${badge}
-        <div class="conf">Confidence: <strong>${confidence}/100</strong></div>
-        <div style="font-size:13px;color:#aaa;margin-top:6px">
-          ${state === 'FORMING' ? '⏳ Setup się formuje<br>Potrzebujemy silniejszego ADX i sesji' : state === 'LONG' ? '🟢 Mocny sygnał LONG' : 'Brak sygnału'}
-        </div>
-      </div>`;
-    cardsHTML.push(html);
-
-    // Telegram tylko przy wysokim confidence
-    if (confidence >= 78 && state !== 'FLAT') {
-      sendTelegram(`🚀 <b>${state} ${instr.name}</b>\nCena: ${price}\nConfidence: ${confidence}/100\nSesja: Off — ostrożnie`);
-    }
-  }
-
-  document.getElementById('cards').innerHTML = cardsHTML.join('');
-  document.getElementById('status-text').textContent = 'Skan zakończony — następny za 5 min';
-  document.getElementById('log').innerHTML += `<div>${getTime()} — skan wykonany</div>`;
-}
-
-// Start
-document.getElementById('clock').textContent = getTime();
-scan();
-setInterval(scan, 300000); // co 5 minut
-</script>
-</body>
-</html>
+let running = false;
