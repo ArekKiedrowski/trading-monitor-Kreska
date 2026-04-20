@@ -160,6 +160,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   <div><h1>Trading Monitor</h1><p>US500 · GOLD · EURUSD — D1→H4→H1→M15</p></div>
   <div><div class="clock" id="clock">--:--</div><div class="day" id="daytxt">--</div></div>
 </div>
+
+<div class="news-block visible" id="security-banner" style="display:block;background:rgba(245,158,11,0.08);border-color:rgba(245,158,11,0.25);color:var(--amber)">🔐 Wersja bezpieczna: brak jawnych kluczy w kodzie. Telegram działa tylko przez webhook/backend, a Twelve Data najlepiej przez proxy serwerowe.</div>
 <div class="news-block" id="news-block">📰 NEWS BLOCK — ważne dane USD/EUR za mniej niż 30 min. Nie wchodzisz.</div>
 <div class="ctx-grid">
   <div class="ctx-card"><div class="ctx-l">DXY (dolar)</div><div class="ctx-v ctx-neu" id="dxy-val">—</div><div class="ctx-s" id="dxy-sub">ładowanie...</div></div>
@@ -223,9 +225,15 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 </div>
 
 <script>
-const TD_KEY='f9612fdd5fd54eb69c261b03fe3a409f';
-const TG_TOKEN='7980338718:AAFqiQTRwT99Qqql6SFNxgDQUBdJhk9dxtM';
-const TG_CHAT='1599380596';
+const APP_CONFIG = window.APP_CONFIG || {
+  TWELVEDATA_KEY: '',
+  TELEGRAM_ENABLED: false,
+  TELEGRAM_WEBHOOK_URL: '',
+  DATA_PROXY_URL: '',
+  ALLOW_DIRECT_TWELVEDATA: false
+};
+const TD_KEY = APP_CONFIG.ALLOW_DIRECT_TWELVEDATA ? (APP_CONFIG.TWELVEDATA_KEY || '') : '';
+
 
 const INSTRUMENTS=[
   {key:'us500',name:'US500',  sym:'^GSPC',  src:'yahoo',sl:20,    tp:40,    dec:1,lot:0.05,rsiOB:70,rsiOS:30,atrPctMin:0.15,adxMin:22,atrSlMult:0.8, atrTpMult:2.0,srBuffer:0.0},
@@ -236,7 +244,16 @@ const INSTRUMENTS=[
 let running=false,nextIn=0,logs=[],newsBlocked=false,lastSignals={};
 let mktCtx={dxy:null,dxyCloses:[],dxyTrend:'neutral',vix:null,session:{}};
 
-function sendTG(msg){fetch('https://api.telegram.org/bot'+TG_TOKEN+'/sendMessage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:TG_CHAT,text:msg,parse_mode:'HTML'})}).catch(()=>{});}
+async function sendTG(msg){
+  if(!APP_CONFIG.TELEGRAM_ENABLED || !APP_CONFIG.TELEGRAM_WEBHOOK_URL) return;
+  try{
+    await fetch(APP_CONFIG.TELEGRAM_WEBHOOK_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:msg,source:'trading-monitor'})
+    });
+  }catch(e){}
+}
 
 function waw(){
   const now=new Date(),tz='Europe/Warsaw';
@@ -529,6 +546,19 @@ async function fetchYahoo(sym){
 }
 async function fetchTD(sym,interval,outputsize){
   interval=interval||'1h';outputsize=outputsize||100;
+  if(APP_CONFIG.DATA_PROXY_URL){
+    const proxyUrl=APP_CONFIG.DATA_PROXY_URL.replace(/\/$/,'')+'/twelvedata/time_series?symbol='+encodeURIComponent(sym)+'&interval='+interval+'&outputsize='+outputsize;
+    const r=await fetch(proxyUrl,{signal:AbortSignal.timeout(10000)});
+    const d=await r.json();
+    if(d.status==='error')throw new Error(d.message);
+    if(!d.values||d.values.length<2)throw new Error('brak danych TD');
+    const values=d.values;
+    const closes=values.map(v=>parseFloat(v.close)).reverse();
+    const highs=values.map(v=>parseFloat(v.high)).reverse();
+    const lows=values.map(v=>parseFloat(v.low)).reverse();
+    return{closes,highs,lows,price:parseFloat(values[0].close),prev:parseFloat(values[1].close)};
+  }
+  if(!APP_CONFIG.ALLOW_DIRECT_TWELVEDATA || !TD_KEY) throw new Error('Brak bezpiecznej konfiguracji Twelve Data');
   const url='https://api.twelvedata.com/time_series?symbol='+encodeURIComponent(sym)+'&interval='+interval+'&outputsize='+outputsize+'&apikey='+TD_KEY;
   const r=await fetch(url,{signal:AbortSignal.timeout(10000)});
   const d=await r.json();
