@@ -689,7 +689,7 @@ function renderSetup(instr,price,dir,note,e20,e50,atrVal,entryLevel,slLevel,tpLe
   addLog(instr.name,dir,'Entry '+ep+' · SL '+sl+' · TP '+tp,tgMsg);
 }
 
-function renderForming(instr,price,note,e20,e50,filters){
+function renderForming(instr,price,note,e20,e50,filters,h1result){
   const ep=price.toFixed(instr.dec);
   const e20s=e20?(e20.toFixed(instr.dec>1?instr.dec:1)):'—';
   const e50s=e50?(e50.toFixed(instr.dec>1?instr.dec:1)):'—';
@@ -697,13 +697,42 @@ function renderForming(instr,price,note,e20,e50,filters){
   if(filters&&filters.length){
     filtersHtml='<div class="filters">'+filters.map(f=>'<span class="filter-tag '+f.cls+'">'+f.label+'</span>').join('')+'</div>';
   }
+
+  // What are we waiting for?
+  let waitingFor='';
+  if(h1result){
+    const atr=h1result.atrVal||0;
+    const dec=instr.dec;
+    const trendUp=e20&&e50&&e20>e50;
+    const trendDown=e20&&e50&&e20<e50;
+    if(trendUp){
+      // Waiting for EMA crossover strengthening + price above both EMAs
+      const targetEMA=e20?(e20+atr*0.3).toFixed(dec):null;
+      waitingFor='Czekam na: cena > EMA20 ('+e20s+') i momentum ↑'+(targetEMA?'<br>Obserwuj poziom: <strong>'+targetEMA+'</strong>':'');
+    } else if(trendDown){
+      const targetEMA=e20?(e20-atr*0.3).toFixed(dec):null;
+      waitingFor='Czekam na: cena < EMA20 ('+e20s+') i momentum ↓'+(targetEMA?'<br>Obserwuj poziom: <strong>'+targetEMA+'</strong>':'');
+    } else {
+      // No clear trend - waiting for EMA crossover
+      const crossDist=e20&&e50?Math.abs(e20-e50).toFixed(dec):null;
+      waitingFor='Czekam na: przecięcie EMA20/EMA50'+(crossDist?'<br>Odległość EMA: <strong>'+crossDist+'</strong>':'');
+    }
+    // Add entry level hint if available
+    if(h1result.entryLevel){
+      waitingFor+='<br>Target entry: <strong>'+h1result.entryLevel.toFixed(dec)+'</strong>';
+    }
+  }
+
   document.getElementById('body-'+instr.key).innerHTML=
     '<div class="indicators">'+
     '<div class="ind"><div class="ind-l">EMA 20</div><div class="ind-v">'+e20s+'</div></div>'+
     '<div class="ind"><div class="ind-l">EMA 50</div><div class="ind-v">'+e50s+'</div></div>'+
     '<div class="ind"><div class="ind-l">Cena</div><div class="ind-v">'+ep+'</div></div>'+
     '</div>'+filtersHtml+
-    '<div class="forming-msg">Setup się formuje — czekaj.<br>'+note+'</div>';
+    '<div class="forming-msg">⏳ Setup się formuje<br>'+
+    '<span style="font-size:11px;opacity:.8">'+note+'</span><br><br>'+
+    '<span style="font-size:12px;color:var(--text)">'+waitingFor+'</span>'+
+    '</div>';
   addLog(instr.name,'forming','@ '+ep+' — '+note);
 }
 
@@ -839,7 +868,7 @@ async function scan(){
           forming++;
           setBadge(instr.key,'forming','czekaj');setCard(instr.key,'forming');
           const note=h1.note+'\n⚠️ Zbyt wiele ostrzeżeń — czekaj na lepszy setup';
-          renderForming(instr,price,note,h1.e20,h1.e50,filters);
+          renderForming(instr,price,note,h1.e20,h1.e50,filters,h1);
         } else {
           sigs++;
           const dl=h1.dir.toLowerCase();
