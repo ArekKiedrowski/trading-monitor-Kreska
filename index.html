@@ -630,6 +630,11 @@ function setCard(id,sig){
 
 function addLog(instr,dir,detail,tgMsg){
   const t=waw();
+  // Deduplicate - don't add same signal twice in same minute
+  if(logs.length>0){
+    const last=logs[0];
+    if(last.instr===instr&&last.dir===dir&&last.time===t.str)return;
+  }
   logs.unshift({time:t.str,instr,dir,detail});
   if(logs.length>50)logs.pop();
   renderLog();
@@ -795,22 +800,42 @@ async function scan(){
 
       const h1=analyzeH1(closes,highs,lows);
 
-      // D1 — daily trend filter
+      // D1 — daily trend filter (cache 30 min to save API calls)
       let d1={trend:'NEUTRAL'};
       if(instr.src==='td'){
-        try{const d1data=await fetchTD(instr.sym,'1day',100);d1=analyzeD1(d1data.closes);}catch(e){}
+        const d1key='d1_'+instr.key;
+        const d1cache=sessionStorage.getItem(d1key);
+        const d1time=sessionStorage.getItem(d1key+'_t');
+        if(d1cache&&d1time&&Date.now()-parseInt(d1time)<1800000){
+          d1=JSON.parse(d1cache);
+        } else {
+          try{
+            const d1data=await fetchTD(instr.sym,'1day',60);
+            d1=analyzeD1(d1data.closes);
+            sessionStorage.setItem(d1key,JSON.stringify(d1));
+            sessionStorage.setItem(d1key+'_t',Date.now().toString());
+          }catch(e){}
+        }
       }
 
-      // M15 — confirmation
+      // M15 — confirmation (only on signal)
       let m15=null;
       if(instr.src==='td'&&(h1.dir==='LONG'||h1.dir==='SHORT')){
-        try{const m15data=await fetchTD(instr.sym,'15min',100);m15=analyzeM15(m15data.closes,m15data.highs,m15data.lows);}catch(e){}
+        try{
+          await new Promise(r=>setTimeout(r,500)); // small delay to avoid rate limit
+          const m15data=await fetchTD(instr.sym,'15min',60);
+          m15=analyzeM15(m15data.closes,m15data.highs,m15data.lows);
+        }catch(e){}
       }
 
-      // M5 — entry refinement
+      // M5 — entry refinement (only when M15 ok)
       let m5price=null;
-      if(m15&&instr.src==='td'){
-        try{const m5data=await fetchTD(instr.sym,'5min',50);m5price=analyzeM5(m5data.closes).price;}catch(e){}
+      if(m15&&instr.src==='td'&&!m15.overbought&&!m15.oversold){
+        try{
+          await new Promise(r=>setTimeout(r,500));
+          const m5data=await fetchTD(instr.sym,'5min',30);
+          m5price=analyzeM5(m5data.closes).price;
+        }catch(e){}
       }
 
       // Build filter tags
