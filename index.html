@@ -617,7 +617,7 @@ function analyzeH1(closes,highs,lows,instrParams){
   const trendStrong=!adxVal||(adxVal>instrParams.adxMin);
   const aboveEMA=price>e20&&price>e50;
   const belowEMA=price<e20&&price<e50;
-  const dec=price>100?1:price>1?4:5;
+  const dec=price>100?1:price>1?5:5;
   const fmt=v=>v?v.toFixed(dec):'?';
   let dir='NO_SIGNAL',note='',entryLevel=null,slLevel=null,tpLevel=null;
   if(trendUp&&mom>0&&aboveEMA){
@@ -1008,18 +1008,7 @@ async function scan(){
         filters.push({label:'RSI M15: '+m15.rsi,cls:rsiWarn?'ft-warn':'ft-ok'});
       }
 
-      // ADX - trend strength (from analyzeH1)
-      if(h1.adxVal){
-        const adxOk=h1.adxVal>=(instr.adxMin||20);
-        filters.push({label:'ADX: '+h1.adxVal.toFixed(1),cls:adxOk?'ft-ok':h1.adxVal>15?'ft-warn':'ft-bad'});
-        if(h1.adxVal<15)warnings++;
-      }
-
-      // ROC momentum (from analyzeH1)
-      if(h1.rocVal!==null&&h1.rocVal!==undefined){
-        const rocOk=(h1.dir==='LONG'&&h1.rocVal>0)||(h1.dir==='SHORT'&&h1.rocVal<0);
-        filters.push({label:'ROC: '+h1.rocVal.toFixed(2)+'%',cls:rocOk?'ft-ok':'ft-warn'});
-      }
+      // ADX/ROC already added above from h1 result
 
       // ATR% volatility check
       const atrPctVal=h1.atrVal?(h1.atrVal/h1.price*100):0;
