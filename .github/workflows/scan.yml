@@ -147,6 +147,9 @@ jobs:
             const messages = [];
             const newSignals = {...lastSignals};
 
+            const isManual = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch';
+            if (isManual) { Object.keys(lastSignals).forEach(k => delete lastSignals[k]); console.log('Manual run - cleared cache'); }
+
             for (const instr of INSTRUMENTS) {
               try {
                 const data = instr.src==='yahoo' ? await fetchYahoo(instr.sym) : await fetchTD(instr.sym);
