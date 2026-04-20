@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Restore signal cache
-        id: cache
         uses: actions/cache@v4
         with:
           path: signal-cache.json
@@ -28,6 +27,9 @@ jobs:
           const TG_TOKEN = process.env.TG_TOKEN;
           const TG_CHAT = process.env.TG_CHAT;
 
+          console.log('TG_TOKEN exists:', !!TG_TOKEN);
+          console.log('TG_CHAT:', TG_CHAT);
+
           const INSTRUMENTS = [
             {key:'us500', name:'US500',   sym:'^GSPC',   src:'yahoo', sl:20,     tp:40,     dec:1},
             {key:'gold',  name:'GOLD',    sym:'XAU/USD', src:'td',    sl:25,     tp:50,     dec:1},
@@ -44,27 +46,34 @@ jobs:
 
           function fetchUrl(url) {
             return new Promise((resolve, reject) => {
-              const options = { headers: { 'User-Agent': 'Mozilla/5.0' } };
-              https.get(url, options, res => {
+              https.get(url, {headers:{'User-Agent':'Mozilla/5.0'}}, res => {
                 let data = '';
                 res.on('data', chunk => data += chunk);
-                res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { reject(new Error('parse: '+data.slice(0,80))); } });
+                res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { reject(new Error('parse: '+data.slice(0,100))); } });
               }).on('error', reject);
             });
           }
 
           function sendTelegram(msg) {
-            const body = JSON.stringify({chat_id: TG_CHAT, text: msg, parse_mode: 'HTML'});
-            const options = {
-              hostname: 'api.telegram.org',
-              path: `/bot${TG_TOKEN}/sendMessage`,
-              method: 'POST',
-              headers: {'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body)}
-            };
             return new Promise(resolve => {
-              const req = https.request(options, res => { res.resume(); resolve(); });
-              req.on('error', () => resolve());
-              req.write(body); req.end();
+              const body = JSON.stringify({chat_id: TG_CHAT, text: msg, parse_mode: 'HTML'});
+              const options = {
+                hostname: 'api.telegram.org',
+                path: `/bot${TG_TOKEN}/sendMessage`,
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body)}
+              };
+              const req = https.request(options, res => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => {
+                  console.log('Telegram response:', data.slice(0, 200));
+                  resolve();
+                });
+              });
+              req.on('error', e => { console.error('Telegram error:', e.message); resolve(); });
+              req.write(body);
+              req.end();
             });
           }
 
@@ -145,23 +154,17 @@ jobs:
                 const {dir, note} = analyze(closes, highs, lows);
                 console.log(instr.name, dir, price.toFixed(instr.dec));
 
-                const sigKey = instr.key;
-                const prevDir = lastSignals[sigKey];
+                const prevDir = lastSignals[instr.key];
                 const isNew = prevDir !== dir;
+                newSignals[instr.key] = dir;
 
-                if (dir==='NO_SIGNAL'||dir==='FORMING') {
-                  newSignals[sigKey] = dir;
-                  if (isNew && dir==='FORMING') {
-                    messages.push(`⏳ <b>FORMING ${instr.name}</b>\nCena: ${price.toFixed(instr.dec)}\n${note}`);
-                  }
-                } else if (dir==='LONG'||dir==='SHORT') {
-                  newSignals[sigKey] = dir;
-                  if (isNew) {
-                    const isL=dir==='LONG';
-                    const sl=(isL?price-instr.sl:price+instr.sl).toFixed(instr.dec);
-                    const tp=(isL?price+instr.tp:price-instr.tp).toFixed(instr.dec);
-                    messages.push(`⚡ <b>${dir} ${instr.name}</b>\nCena ref: ${price.toFixed(instr.dec)}\nSL ref: ${sl} · TP ref: ${tp}\nLot: 0.05\n${note}\n\n➡️ Wpisz cenę z XTB w aplikacji`);
-                  }
+                if (isNew && (dir==='LONG'||dir==='SHORT')) {
+                  const isL=dir==='LONG';
+                  const sl=(isL?price-instr.sl:price+instr.sl).toFixed(instr.dec);
+                  const tp=(isL?price+instr.tp:price-instr.tp).toFixed(instr.dec);
+                  messages.push(`⚡ <b>${dir} ${instr.name}</b>\nCena ref: ${price.toFixed(instr.dec)}\nSL ref: ${sl}\nTP ref: ${tp}\nLot: 0.05\n${note}\n\n➡️ Wpisz cenę z XTB w aplikacji`);
+                } else if (isNew && dir==='FORMING') {
+                  messages.push(`⏳ <b>FORMING ${instr.name}</b>\nCena: ${price.toFixed(instr.dec)}\n${note}`);
                 }
               } catch(e) {
                 console.error(instr.name, e.message);
@@ -173,10 +176,12 @@ jobs:
 
             if (messages.length > 0) {
               const t = new Date().toLocaleTimeString('pl-PL',{timeZone:'Europe/Warsaw',hour:'2-digit',minute:'2-digit'});
-              await sendTelegram(`📊 <b>Trading Monitor ${t}</b>\n\n` + messages.join('\n\n─────\n\n'));
+              const fullMsg = `📊 <b>Trading Monitor ${t}</b>\n\n` + messages.join('\n\n─────\n\n');
+              console.log('Sending message:', fullMsg.slice(0, 100));
+              await sendTelegram(fullMsg);
               console.log('Wysłano', messages.length, 'nowych sygnałów');
             } else {
-              console.log('Brak nowych sygnałów');
+              console.log('Brak nowych sygnałów - cache:', JSON.stringify(lastSignals));
             }
           }
 
