@@ -214,6 +214,34 @@ function atr(highs,lows,closes,period){
   return trs.slice(-period).reduce(function(a,b){return a+b;},0)/period;
 }
 
+function findSupport(lows, closes, lookback){
+  // Find nearest swing low in last N candles
+  var n=Math.min(lookback||20, lows.length-1);
+  var price=closes[closes.length-1];
+  var best=null;
+  for(var i=closes.length-2;i>=closes.length-n;i--){
+    var low=lows[i];
+    if(low<price){
+      if(best===null||low>best) best=low;
+    }
+  }
+  return best;
+}
+
+function findResistance(highs, closes, lookback){
+  // Find nearest swing high in last N candles
+  var n=Math.min(lookback||20, highs.length-1);
+  var price=closes[closes.length-1];
+  var best=null;
+  for(var i=closes.length-2;i>=closes.length-n;i--){
+    var high=highs[i];
+    if(high>price){
+      if(best===null||high<best) best=high;
+    }
+  }
+  return best;
+}
+
 function analyze(closes,highs,lows){
   if(!closes||closes.length<30)return{dir:'NO_SIGNAL',note:'za mało danych'};
   var e20=ema(closes,20),e50=ema(closes,50);
@@ -229,17 +257,55 @@ function analyze(closes,highs,lows){
   var belowEMA=price<e20&&price<e50;
   var dec=price>100?1:price>1?2:5;
   var fmt=function(v){return v?v.toFixed(dec):'?';};
-  var dir='NO_SIGNAL',note='';
+  var dir='NO_SIGNAL',note='',entryLevel=null,slLevel=null,tpLevel=null;
   if(trendUp&&mom>0&&aboveEMA){
-    if(tsUp&&volOk){dir='LONG';note='Trend wzrostowy. EMA20='+fmt(e20)+' > EMA50='+fmt(e50)+', momentum ↑';}
-    else{dir='FORMING';note='Trend wzrostowy, czekam na potwierdzenie. EMA20='+fmt(e20)+' EMA50='+fmt(e50);}
+    if(tsUp&&volOk){
+      dir='LONG';
+      // Find nearest support for optimal entry
+      var support=findSupport(lows,closes,15);
+      var distToSupport=support?(price-support):null;
+      if(support&&distToSupport&&distToSupport<atrVal*2){
+        // Price is near support - entry at support, SL below it
+        entryLevel=parseFloat(support.toFixed(dec));
+        slLevel=parseFloat((support-atrVal*0.8).toFixed(dec));
+        tpLevel=parseFloat((support+atrVal*2).toFixed(dec));
+        note='Trend wzrostowy. Entry przy wsparciu '+fmt(support)+'. EMA20='+fmt(e20)+' > EMA50='+fmt(e50);
+      } else {
+        // No nearby support - market entry
+        entryLevel=price;
+        slLevel=parseFloat((price-atrVal*0.8).toFixed(dec));
+        tpLevel=parseFloat((price+atrVal*2).toFixed(dec));
+        note='Trend wzrostowy. Entry rynkowe. EMA20='+fmt(e20)+' > EMA50='+fmt(e50)+', momentum ↑';
+      }
+    } else {
+      dir='FORMING';
+      note='Trend wzrostowy, czekam na potwierdzenie. EMA20='+fmt(e20)+' EMA50='+fmt(e50);
+    }
   } else if(trendDown&&mom<0&&belowEMA){
-    if(tsUp&&volOk){dir='SHORT';note='Trend spadkowy. EMA20='+fmt(e20)+' < EMA50='+fmt(e50)+', momentum ↓';}
-    else{dir='FORMING';note='Trend spadkowy, czekam na potwierdzenie. EMA20='+fmt(e20)+' EMA50='+fmt(e50);}
+    if(tsUp&&volOk){
+      dir='SHORT';
+      // Find nearest resistance for optimal entry
+      var resistance=findResistance(highs,closes,15);
+      var distToResistance=resistance?(resistance-price):null;
+      if(resistance&&distToResistance&&distToResistance<atrVal*2){
+        entryLevel=parseFloat(resistance.toFixed(dec));
+        slLevel=parseFloat((resistance+atrVal*0.8).toFixed(dec));
+        tpLevel=parseFloat((resistance-atrVal*2).toFixed(dec));
+        note='Trend spadkowy. Entry przy oporze '+fmt(resistance)+'. EMA20='+fmt(e20)+' < EMA50='+fmt(e50);
+      } else {
+        entryLevel=price;
+        slLevel=parseFloat((price+atrVal*0.8).toFixed(dec));
+        tpLevel=parseFloat((price-atrVal*2).toFixed(dec));
+        note='Trend spadkowy. Entry rynkowe. EMA20='+fmt(e20)+' < EMA50='+fmt(e50)+', momentum ↓';
+      }
+    } else {
+      dir='FORMING';
+      note='Trend spadkowy, czekam na potwierdzenie. EMA20='+fmt(e20)+' EMA50='+fmt(e50);
+    }
   } else {
     note='Brak wyraźnego trendu. EMA20='+fmt(e20)+' EMA50='+fmt(e50);
   }
-  return{dir:dir,note:note,e20:e20,e50:e50,atrVal:atrVal,price:price};
+  return{dir:dir,note:note,e20:e20,e50:e50,atrVal:atrVal,price:price,entryLevel:entryLevel,slLevel:slLevel,tpLevel:tpLevel};
 }
 
 async function fetchYahoo(sym){
@@ -391,7 +457,7 @@ async function scan(){
         sigs++;
         var dl=dir.toLowerCase();
         setBadge(instr.key,dl,dir);setCard(instr.key,dl);
-        renderSetup(instr,price,dl,note,e20,e50,atrVal);
+        renderSetup(instr,price,dl,note,e20,e50,atrVal,result.entryLevel,result.slLevel,result.tpLevel);
       } else if(dir==='FORMING'){
         forming++;
         setBadge(instr.key,'forming','forming...');setCard(instr.key,'forming');
