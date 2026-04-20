@@ -1,0 +1,68 @@
+# GitHub Actions Workflow — scan.yml
+
+## Gdzie wstawić
+```
+.github/workflows/scan.yml
+```
+
+## Co nowe (bezpieczne)
+✗ USUNIĘTE:
+  - Jawne drukowanie kluczy w console.log
+  - `TD_KEY` w logach GitHub Actions
+  - `TG_TOKEN` i `TG_CHAT` w zmiennych
+
+✓ DODANE:
+  - `TG_WEBHOOK` — zamiast bezpośredniego Telegrama
+  - Filtrowanie newsów per-instrument
+  - Bezpieczne cache (po uruchomieniu)
+  - `GITHUB_EVENT_NAME` — auto-clear cache na manual run
+
+## Secrets do ustawienia na GitHub
+
+```
+Settings → Secrets and variables → Actions
+```
+
+Dodaj (LUB AKTUALIZUJ):
+- `TD_KEY` = twój Twelve Data API key
+- `TG_WEBHOOK` = webhook URL do Telegrama (zamiast token + chat_id)
+
+### Jak zrobić TG_WEBHOOK
+
+1. **Stwórz bot** — napisz `/start` do @BotFather na Telegramie
+2. **Weź token** — `/newbot` → podaj nazwę → dostaniesz token
+3. **Weź chat ID** — napisz `/start` do @userinfobot → dostaniesz ID
+4. **Webhook URL**:
+   ```
+   https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id={CHAT_ID}
+   ```
+   Albo na backendzie (rekomendacja):
+   ```
+   https://twoj-backend.com/api/tg-send
+   ```
+
+## Schedule
+```
+*/5 6-22 * * 1-5
+```
+- Co 5 minut
+- 6:00 - 22:00 UTC (Warszawa: 7:00-23:00)
+- Poniedziałek - Piątek
+
+## Test
+```
+Actions → Trading Monitor Scan → Run workflow → workflow_dispatch
+```
+
+Workflow się uruchomi, cache się wyczyści, sygnały się zaktualizują.
+
+## Logi (bezpieczne)
+GitHub Actions log NIE będzie zawierać:
+- Twojego TD_KEY
+- Twojego TG_WEBHOOK
+
+Będzie zawierać:
+- ✓ Które instrumenty skanowały
+- ✓ Które sygnały wysłano
+- ✓ News blocks
+- ✓ Errory (bez danych wrażliwych)
