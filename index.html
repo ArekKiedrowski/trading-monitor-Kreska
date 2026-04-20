@@ -151,7 +151,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 
 <div class="market-context">
   <div class="ctx-card"><div class="ctx-label">DXY (dolar)</div><div class="ctx-val ctx-neutral" id="dxy-val">—</div><div class="ctx-sub" id="dxy-trend">ładowanie...</div></div>
-  <div class="ctx-card"><div class="ctx-label">Fear & Greed</div><div class="ctx-val ctx-neutral" id="fg-val">—</div><div class="ctx-sub" id="fg-label">—</div></div>
+  <div class="ctx-card"><div class="ctx-label">VIX / Sentiment</div><div class="ctx-val ctx-neutral" id="fg-val">—</div><div class="ctx-sub" id="fg-label">—</div></div>
   <div class="ctx-card"><div class="ctx-label">Sesja</div><div class="ctx-val ctx-neutral" id="sess-val">—</div><div class="ctx-sub" id="sess-sub">—</div></div>
 </div>
 
@@ -224,9 +224,12 @@ const TG_TOKEN='7980338718:AAFqiQTRwT99Qqql6SFNxgDQUBdJhk9dxtM';
 const TG_CHAT='1599380596';
 
 const INSTRUMENTS=[
-  {key:'us500',name:'US500',  sym:'^GSPC',  src:'yahoo',sl:20,    tp:40,    dec:1,lot:0.05},
-  {key:'gold', name:'GOLD',   sym:'XAU/USD',src:'td',   sl:25,    tp:50,    dec:1,lot:0.05},
-  {key:'eurusd',name:'EUR/USD',sym:'EUR/USD',src:'td',  sl:0.0015,tp:0.0030,dec:5,lot:0.05}
+  {key:'us500', name:'US500',   sym:'^GSPC',   src:'yahoo', sl:20,     tp:40,     dec:1, lot:0.05,
+   rsiOB:70, rsiOS:30, atrPctMin:0.15, adxMin:22},
+  {key:'gold',  name:'GOLD',    sym:'XAU/USD', src:'td',    sl:25,     tp:50,     dec:1, lot:0.05,
+   rsiOB:68, rsiOS:32, atrPctMin:0.20, adxMin:20},
+  {key:'eurusd',name:'EUR/USD', sym:'EUR/USD', src:'td',    sl:0.0015, tp:0.0030, dec:5, lot:0.05,
+   rsiOB:65, rsiOS:35, atrPctMin:0.10, adxMin:18}
 ];
 
 let running=false,nextIn=0,logs=[],newsBlocked=false,lastSignals={};
@@ -408,19 +411,44 @@ async function loadDXY(){
 
 async function loadFearGreed(){
   try{
-    const url='https://corsproxy.io/?url='+encodeURIComponent('https://api.alternative.me/fng/?limit=1');
-    const r=await fetch(url);
-    const d=await r.json();
-    const val=parseInt(d.data[0].value);
-    const label=d.data[0].value_classification;
-    marketCtx.fg=val;marketCtx.fgLabel=label;
+    // VIX proxy for US500 sentiment (^VIX via Yahoo)
+    const yahooUrl='https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=5d';
+    const proxies=['https://api.allorigins.win/get?url=','https://corsproxy.io/?url='];
+    let vixPrice=null;
+    for(const p of proxies){
+      try{
+        const r=await fetch(p+encodeURIComponent(yahooUrl),{signal:AbortSignal.timeout(6000)});
+        const d=await r.json();
+        const parsed=d.contents?JSON.parse(d.contents):d;
+        const quotes=parsed.chart.result[0].indicators.quote[0].close.filter(v=>v!=null);
+        vixPrice=quotes[quotes.length-1];
+        break;
+      }catch(e){}
+    }
+    if(!vixPrice)throw new Error('no VIX');
+    marketCtx.fg=vixPrice;
+    // VIX: <15 = complacency/bull, 15-25 = normal, 25-35 = fear, >35 = extreme fear
+    const label=vixPrice<15?'Greed':vixPrice<25?'Neutral':vixPrice<35?'Fear':'Extreme Fear';
+    marketCtx.fgLabel=label;
     const el=document.getElementById('fg-val');
     const sub=document.getElementById('fg-label');
-    el.textContent=val;
-    el.className='ctx-val '+(val<30?'ctx-down':val>70?'ctx-up':'ctx-neutral');
-    sub.textContent=label;
+    el.textContent=vixPrice.toFixed(1);
+    el.className='ctx-val '+(vixPrice>35?'ctx-down':vixPrice>25?'ctx-neutral':'ctx-up');
+    document.getElementById('fg-label').previousElementSibling||0;
+    sub.textContent='VIX: '+label;
   }catch(e){
-    document.getElementById('fg-label').textContent='brak danych';
+    // Fallback to crypto F&G
+    try{
+      const url='https://corsproxy.io/?url='+encodeURIComponent('https://api.alternative.me/fng/?limit=1');
+      const r=await fetch(url,{signal:AbortSignal.timeout(5000)});
+      const d=await r.json();
+      const val=parseInt(d.data[0].value);
+      marketCtx.fg=val;marketCtx.fgLabel=d.data[0].value_classification;
+      document.getElementById('fg-val').textContent=val;
+      document.getElementById('fg-label').textContent='F&G: '+d.data[0].value_classification;
+    }catch(e2){
+      document.getElementById('fg-label').textContent='brak danych';
+    }
   }
 }
 
@@ -453,6 +481,83 @@ function atr(highs,lows,closes,period){
   for(let i=1;i<closes.length;i++)
     trs.push(Math.max(highs[i]-lows[i],Math.abs(highs[i]-closes[i-1]),Math.abs(lows[i]-closes[i-1])));
   return trs.slice(-period).reduce((a,b)=>a+b,0)/period;
+}
+
+function adx(highs,lows,closes,period){
+  period=period||14;
+  if(closes.length<period*2)return null;
+  const trueRanges=[],plusDMs=[],minusDMs=[];
+  for(let i=1;i<closes.length;i++){
+    const tr=Math.max(highs[i]-lows[i],Math.abs(highs[i]-closes[i-1]),Math.abs(lows[i]-closes[i-1]));
+    const plusDM=Math.max(highs[i]-highs[i-1],0);
+    const minusDM=Math.max(lows[i-1]-lows[i],0);
+    trueRanges.push(tr);
+    plusDMs.push(plusDM>minusDM?plusDM:0);
+    minusDMs.push(minusDM>plusDM?minusDM:0);
+  }
+  const smoothed=(arr)=>{
+    let s=arr.slice(0,period).reduce((a,b)=>a+b,0);
+    const res=[s];
+    for(let i=period;i<arr.length;i++){s=s-s/period+arr[i];res.push(s);}
+    return res;
+  };
+  const sTR=smoothed(trueRanges),sPDM=smoothed(plusDMs),sMDM=smoothed(minusDMs);
+  const dxs=[];
+  for(let i=0;i<sTR.length;i++){
+    if(sTR[i]===0)continue;
+    const pDI=100*sPDM[i]/sTR[i],mDI=100*sMDM[i]/sTR[i];
+    const dx=100*Math.abs(pDI-mDI)/(pDI+mDI||1);
+    dxs.push(dx);
+  }
+  if(dxs.length<period)return null;
+  return dxs.slice(-period).reduce((a,b)=>a+b,0)/period;
+}
+
+function roc(closes,period){
+  period=period||10;
+  if(closes.length<period+1)return null;
+  const curr=closes[closes.length-1];
+  const prev=closes[closes.length-1-period];
+  return (curr-prev)/prev*100;
+}
+
+function adx(highs,lows,closes,period){
+  period=period||14;
+  if(closes.length<period*2)return null;
+  const dms=[],dmm=[];
+  for(let i=1;i<closes.length;i++){
+    const upMove=highs[i]-highs[i-1];
+    const downMove=lows[i-1]-lows[i];
+    dms.push(upMove>downMove&&upMove>0?upMove:0);
+    dmm.push(downMove>upMove&&downMove>0?downMove:0);
+  }
+  const trList=[];
+  for(let i=1;i<closes.length;i++)
+    trList.push(Math.max(highs[i]-lows[i],Math.abs(highs[i]-closes[i-1]),Math.abs(lows[i]-closes[i-1])));
+  // Smoothed averages
+  let atrS=trList.slice(0,period).reduce((a,b)=>a+b,0);
+  let dmPS=dms.slice(0,period).reduce((a,b)=>a+b,0);
+  let dmMS=dmm.slice(0,period).reduce((a,b)=>a+b,0);
+  const dxList=[];
+  for(let i=period;i<trList.length;i++){
+    atrS=atrS-atrS/period+trList[i];
+    dmPS=dmPS-dmPS/period+dms[i];
+    dmMS=dmMS-dmMS/period+dmm[i];
+    const diP=atrS>0?100*dmPS/atrS:0;
+    const diM=atrS>0?100*dmMS/atrS:0;
+    const dx=diP+diM>0?100*Math.abs(diP-diM)/(diP+diM):0;
+    dxList.push(dx);
+  }
+  if(dxList.length<period)return null;
+  return dxList.slice(-period).reduce((a,b)=>a+b,0)/period;
+}
+
+function roc(closes,period){
+  period=period||10;
+  if(closes.length<period+1)return null;
+  const current=closes[closes.length-1];
+  const prev=closes[closes.length-1-period];
+  return prev>0?(current-prev)/prev*100:null;
 }
 
 function findSupport(lows,closes,lookback){
@@ -495,24 +600,28 @@ function findResistance(highs,closes,lookback){
 }
 
 // ─── ANALYSIS ────────────────────────────────────────────────
-function analyzeH1(closes,highs,lows){
+function analyzeH1(closes,highs,lows,instrParams){
+  instrParams=instrParams||{rsiOB:68,rsiOS:32,atrPctMin:0.20,adxMin:20};
   if(!closes||closes.length<50)return{dir:'NO_SIGNAL',note:'za mało danych'};
   const e20=ema(closes,20),e50=ema(closes,50);
   const e20p=ema(closes.slice(0,-5),20),e50p=ema(closes.slice(0,-5),50);
   const atrVal=atr(highs,lows,closes,14);
+  const adxVal=adx(highs,lows,closes,14);
+  const rocVal=roc(closes,8);
   const price=closes[closes.length-1];
-  const mom=price-closes[closes.length-11];
+  const mom=rocVal||0;
   const atrPct=atrVal?(atrVal/price*100):0;
   const trendUp=e20>e50,trendDown=e20<e50;
   const tsUp=trendUp?(e20-e50)>(e20p-e50p):(e50-e20)>(e50p-e20p);
-  const volOk=atrPct>0.2;
+  const volOk=atrPct>instrParams.atrPctMin;
+  const trendStrong=!adxVal||(adxVal>instrParams.adxMin);
   const aboveEMA=price>e20&&price>e50;
   const belowEMA=price<e20&&price<e50;
   const dec=price>100?1:price>1?4:5;
   const fmt=v=>v?v.toFixed(dec):'?';
   let dir='NO_SIGNAL',note='',entryLevel=null,slLevel=null,tpLevel=null;
   if(trendUp&&mom>0&&aboveEMA){
-    if(tsUp&&volOk){
+    if(tsUp&&volOk&&trendStrong){
       dir='LONG';
       const sup=findSupport(lows,closes,15);
       const dist=sup?(price-sup):null;
@@ -530,7 +639,7 @@ function analyzeH1(closes,highs,lows){
       note+=' EMA20='+fmt(e20)+' > EMA50='+fmt(e50);
     } else {dir='FORMING';note='Trend wzrostowy, czekam. EMA20='+fmt(e20)+' EMA50='+fmt(e50);}
   } else if(trendDown&&mom<0&&belowEMA){
-    if(tsUp&&volOk){
+    if(tsUp&&volOk&&trendStrong){
       dir='SHORT';
       const res=findResistance(highs,closes,15);
       const dist=res?(res-price):null;
@@ -548,7 +657,7 @@ function analyzeH1(closes,highs,lows){
       note+=' EMA20='+fmt(e20)+' < EMA50='+fmt(e50);
     } else {dir='FORMING';note='Trend spadkowy, czekam. EMA20='+fmt(e20)+' EMA50='+fmt(e50);}
   } else {note='Brak trendu. EMA20='+fmt(e20)+' EMA50='+fmt(e50);}
-  return{dir,note,e20,e50,atrVal,price,entryLevel,slLevel,tpLevel};
+  return{dir,note,e20,e50,atrVal,adxVal,rocVal,price,entryLevel,slLevel,tpLevel};
 }
 
 function analyzeD1(closes){
@@ -809,7 +918,7 @@ async function scan(){
       cel.textContent=(chg>=0?'+':'')+chg.toFixed(2)+'%';
       cel.className='ichange '+(chg>=0?'up':'down');
 
-      const h1=analyzeH1(closes,highs,lows);
+      const h1=analyzeH1(closes,highs,lows,instr);
 
       // D1 — daily trend filter (cache 30 min to save API calls)
       let d1={trend:'NEUTRAL'};
@@ -861,6 +970,18 @@ async function scan(){
       // Session filter
       filters.push({label:t.overlap?'Overlap':t.ny?'NY':t.london?'London':'Off-session',cls:t.overlap||t.ny||t.london?'ft-ok':'ft-warn'});
 
+      // ADX strength filter
+      if(h1.adxVal){
+        const adxOk=h1.adxVal>instr.adxMin;
+        filters.push({label:'ADX: '+h1.adxVal.toFixed(1),cls:adxOk?'ft-ok':h1.adxVal>15?'ft-warn':'ft-bad'});
+      }
+
+      // ROC momentum
+      if(h1.rocVal!==null&&h1.rocVal!==undefined){
+        const rocOk=(h1.dir==='LONG'&&h1.rocVal>0)||(h1.dir==='SHORT'&&h1.rocVal<0);
+        filters.push({label:'ROC: '+(h1.rocVal>0?'+':'')+h1.rocVal.toFixed(2)+'%',cls:rocOk?'ft-ok':'ft-warn'});
+      }
+
       // DXY correlation
       if(marketCtx.dxy){
         if(instr.key==='gold'){
@@ -873,17 +994,36 @@ async function scan(){
         }
       }
 
-      // Fear & Greed
+      // VIX / Sentiment for US500
       if(marketCtx.fg!==null&&instr.key==='us500'){
-        const fgOk=(h1.dir==='LONG'&&marketCtx.fg>40)||(h1.dir==='SHORT'&&marketCtx.fg<60);
-        filters.push({label:'F&G: '+marketCtx.fg,cls:marketCtx.fg<25?'ft-bad':marketCtx.fg>75?'ft-warn':'ft-ok'});
+        const vix=marketCtx.fg;
+        // VIX >35 = extreme fear = bad for LONG, good for SHORT
+        const vixOk=(h1.dir==='LONG'&&vix<25)||(h1.dir==='SHORT'&&vix>20)||vix<30;
+        filters.push({label:'VIX: '+vix.toFixed(1),cls:vix>35?'ft-bad':vix>25?'ft-warn':'ft-ok'});
       }
 
-      // RSI M15
+      // RSI M15 with instrument-specific thresholds
       if(m15){
-        const rsiOk=!((h1.dir==='LONG'&&m15.overbought)||(h1.dir==='SHORT'&&m15.oversold));
-        filters.push({label:'RSI M15: '+m15.rsi,cls:m15.overbought||m15.oversold?'ft-warn':'ft-ok'});
+        const rsiWarn=(h1.dir==='LONG'&&parseFloat(m15.rsi)>(instr.rsiOB||68))||(h1.dir==='SHORT'&&parseFloat(m15.rsi)<(instr.rsiOS||32));
+        filters.push({label:'RSI M15: '+m15.rsi,cls:rsiWarn?'ft-warn':'ft-ok'});
       }
+
+      // ADX - trend strength
+      if(adxVal){
+        const adxStr=adxVal.toFixed(1);
+        filters.push({label:'ADX: '+adxStr,cls:adxVal>=(instr.adxMin||20)?'ft-ok':adxVal>15?'ft-warn':'ft-bad'});
+        if(adxVal<15)warnings++; // weak trend = extra warning
+      }
+
+      // ROC momentum
+      if(rocVal!==null){
+        const rocStr=rocVal.toFixed(2)+'%';
+        const rocOk=(h1.dir==='LONG'&&rocVal>0)||(h1.dir==='SHORT'&&rocVal<0);
+        filters.push({label:'ROC: '+rocStr,cls:rocOk?'ft-ok':'ft-warn'});
+      }
+
+      // ATR% volatility check
+      if(!atrPctOk){filters.push({label:'Low Vol',cls:'ft-warn'});}
 
       // Liquidity sweep detection
       if(h1.dir==='LONG'||h1.dir==='SHORT'){
@@ -898,7 +1038,12 @@ async function scan(){
       const warnings=filters.filter(f=>f.cls==='ft-warn'||f.cls==='ft-bad').length;
 
       if(h1.dir==='LONG'||h1.dir==='SHORT'){
-        const m15blocks=(m15&&((h1.dir==='LONG'&&m15.overbought)||(h1.dir==='SHORT'&&m15.oversold)));
+        // Use instrument-specific RSI thresholds
+        if(m15){m15.overbought=parseFloat(m15.rsi)>instr.rsiOB;m15.oversold=parseFloat(m15.rsi)<instr.rsiOS;}
+        // Use instrument-specific RSI thresholds
+        const m15OB=m15&&parseFloat(m15.rsi)>(instr.rsiOB||68);
+        const m15OS=m15&&parseFloat(m15.rsi)<(instr.rsiOS||32);
+        const m15blocks=(m15OB&&h1.dir==='LONG')||(m15OS&&h1.dir==='SHORT');
         if(m15blocks||warnings>=3){
           // Too many warnings - show as forming
           forming++;
