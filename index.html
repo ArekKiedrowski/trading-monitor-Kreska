@@ -156,7 +156,7 @@ const TG_TOKEN = '7980338718:AAFqiQTRwT99Qqql6SFNxgDQUBdJhk9dxtM';
 const TG_CHAT = '1599380596';
 
 const CFG = {
-  us500:  {name:'US500',   sym:'SPY',       sl:1.5,    tp:3.0,    dec:2, lot:0.05, source:'td'},
+  us500:  {name:'US500',   sym:'^GSPC',     sl:20,     tp:40,     dec:1, lot:0.05, source:'yahoo'},
   gold:   {name:'GOLD',    sym:'XAU/USD', sl:25,     tp:50,     dec:1, lot:0.05, source:'td'},
   eurusd: {name:'EUR/USD', sym:'EUR/USD', sl:0.0015, tp:0.0030, dec:5, lot:0.05, source:'td'}
 };
@@ -246,21 +246,23 @@ function analyzeSignal(closes,highs,lows){
   const volOk=atrPct>0.2;
   const aboveEMA=price>e20&&price>e50;
   const belowEMA=price<e20&&price<e50;
+  const pr=price>100?1:price>1?2:5;
+  const fmt=v=>v?v.toFixed(pr):'?';
   let dir='NO_SIGNAL', note='';
   if(trendUp&&mom>0&&aboveEMA){
-    if(tsUp&&volOk){dir='LONG';note=`Trend wzrostowy potwierdzony. EMA20=${e20.toFixed(c.dec>1?c.dec:1)} > EMA50=${e50.toFixed(c.dec>1?c.dec:1)}, momentum ↑`;}
-    else{dir='FORMING';note=`Trend wzrostowy, czekam na potwierdzenie. EMA20=${e20.toFixed(c.dec>1?c.dec:1)} EMA50=${e50.toFixed(c.dec>1?c.dec:1)}`;}
+    if(tsUp&&volOk){dir='LONG';note=`Trend wzrostowy. EMA20=${fmt(e20)} > EMA50=${fmt(e50)}, momentum ↑`;}
+    else{dir='FORMING';note=`Trend wzrostowy, czekam na potwierdzenie. EMA20=${fmt(e20)} EMA50=${fmt(e50)}`;}
   } else if(trendDown&&mom<0&&belowEMA){
-    if(tsUp&&volOk){dir='SHORT';note=`Trend spadkowy potwierdzony. EMA20=${e20.toFixed(c.dec>1?c.dec:1)} < EMA50=${e50.toFixed(c.dec>1?c.dec:1)}, momentum ↓`;}
-    else{dir='FORMING';note=`Trend spadkowy, czekam na potwierdzenie. EMA20=${e20.toFixed(c.dec>1?c.dec:1)} EMA50=${e50.toFixed(c.dec>1?c.dec:1)}`;}
+    if(tsUp&&volOk){dir='SHORT';note=`Trend spadkowy. EMA20=${fmt(e20)} < EMA50=${fmt(e50)}, momentum ↓`;}
+    else{dir='FORMING';note=`Trend spadkowy, czekam na potwierdzenie. EMA20=${fmt(e20)} EMA50=${fmt(e50)}`;}
   } else {
-    note=`Brak wyraźnego trendu. EMA20=${e20?e20.toFixed(c.dec>1?c.dec:1):'?'} EMA50=${e50?e50.toFixed(c.dec>1?c.dec:1):'?'}`;
+    note=`Brak wyraźnego trendu. EMA20=${fmt(e20)} EMA50=${fmt(e50)}`;
   }
   return{dir,note,e20,e50,atrVal,price};
 }
 
 async function fetchYahoo(sym){
-  const url=`https://api.codetabs.com/v1/proxy?quest=https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1h%26range=30d`;
+  const url=`https://corsproxy.io/?url=https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1h&range=30d`;
   const r=await fetch(url);
   const d=await r.json();
   const res=d.chart.result[0];
