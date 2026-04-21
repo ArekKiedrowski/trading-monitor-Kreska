@@ -62,9 +62,9 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .icard.sig-forming{border-color:var(--ab);background:var(--abg)}
 .icard.sig-scan{border-color:var(--ab)}
 .itop{display:flex;justify-content:space-between;align-items:center}
-.iname{font-size:15px;font-weight:600}
+.iname{font-size:14px;font-weight:600}
 .iright{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
-.iprice{font-size:15px;font-variant-numeric:tabular-nums;color:var(--muted2)}
+.iprice{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text)}
 .ichange{font-size:12px;font-variant-numeric:tabular-nums}
 .ichange.up{color:var(--green)}.ichange.down{color:var(--red)}
 .badge{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px}
@@ -84,18 +84,18 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .state-forming{background:var(--abg);color:var(--amber);border:1px solid var(--ab)}
 .tf-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:.75rem}
 .tf-cell{background:rgba(255,255,255,0.04);border-radius:var(--rs);padding:6px 8px;text-align:center}
-.tf-label{font-size:10px;color:var(--muted);margin-bottom:2px}
-.tf-val{font-size:12px;font-weight:600}
+.tf-label{font-size:9px;color:var(--muted);margin-bottom:1px}
+.tf-val{font-size:11px;font-weight:600}
 .tf-up{color:var(--green)}.tf-down{color:var(--red)}.tf-neu{color:var(--amber)}
 .trade-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:.6rem}
 .tc{background:rgba(255,255,255,0.04);border-radius:var(--rs);padding:8px 10px;text-align:center}
 .tc-l{font-size:10px;color:var(--muted);margin-bottom:3px;text-transform:uppercase}
-.tc-v{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
+.tc-v{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
 .tc-v.long{color:var(--green)}.tc-v.short{color:var(--red)}.tc-v.sl{color:var(--red)}.tc-v.tp1{color:var(--amber)}.tc-v.tp2{color:var(--green)}
 .tp-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:.6rem}
 .tp-cell{background:rgba(255,255,255,0.04);border-radius:var(--rs);padding:8px 12px}
 .tp-label{font-size:10px;color:var(--muted);margin-bottom:3px}
-.tp-val{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+.tp-val{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
 .tp-sub{font-size:10px;color:var(--muted2);margin-top:2px}
 .sr-info{font-size:12px;color:var(--muted2);padding:8px 12px;background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.2);border-radius:var(--rs);margin-bottom:.6rem}
 .sr-info strong{color:var(--purple)}
@@ -232,8 +232,10 @@ const INSTRUMENTS=[
 ];
 
 let running=false,nextIn=0,logs=[],newsBlocked=false,lastSignals={};
-let formingTimestamps={};  // {key: {ts, score, dir}} — kiedy setup zaczął się formować
 const FORMING_EXPIRY_MS = 60*60*1000; // 1h
+// formingTimestamps w sessionStorage — przezywa odswiezenie strony
+function getFT(){try{return JSON.parse(sessionStorage.getItem('formingTS')||'{}');}catch(e){return {};}}
+function setFT(obj){try{sessionStorage.setItem('formingTS',JSON.stringify(obj));}catch(e){}}
 let mktCtx={dxy:null,dxyCloses:[],dxyTrend:'neutral',vix:null,session:{}};
 
 // Telegram wysyłany wyłącznie przez GitHub Actions (scan.yml) — nie z przeglądarki
@@ -980,25 +982,27 @@ async function scan(){
             const badgeCls=isSignalB?'b-forming':(isL?'b-active-long':'b-active-short');
             const badgeTxt=isSignalB?(isL?'SCALP ⚡ LONG':'SCALP ⚡ SHORT'):(isL?'LONG ▲':'SHORT ▼');
             setBadge(instr.key,badgeCls,badgeTxt);
+            // Reset forming timer gdy sygnał aktywny
+            const _fta=getFT();delete _fta[instr.key];setFT(_fta);
             setCard(instr.key,'sig-active'+(isL?'':' short'));
             renderActive(instr,price,h1.dir,srResult,conf,h1,d1,h4,isSignalB);
           } else {
             // FORMING przy wykrytym kierunku — sprawdź expiry
-            const prevFT=formingTimestamps[instr.key];
+            const _ft=getFT();const prevFT=_ft[instr.key];
             const sameDir=prevFT&&prevFT.dir===h1.dir;
             const betterScore=!prevFT||conf.score>prevFT.score+5;
             if(!prevFT||!sameDir||betterScore){
               // Nowy lub lepszy setup — resetuj timer
-              formingTimestamps[instr.key]={ts:Date.now(),score:conf.score,dir:h1.dir};
+              _ft[instr.key]={ts:Date.now(),score:conf.score,dir:h1.dir};setFT(_ft);
             }
-            const age=Date.now()-formingTimestamps[instr.key].ts;
+            const _ft2=getFT();const age=Date.now()-_ft2[instr.key].ts;
             if(age>FORMING_EXPIRY_MS){
               // Wygasł po 1h — traktuj jak brak setupu
-              delete formingTimestamps[instr.key];
+              const _ftd=getFT();delete _ftd[instr.key];setFT(_ftd);
               setBadge(instr.key,'b-wait','brak setupu');setCard(instr.key,'');
               document.getElementById('body-'+instr.key).innerHTML='';
             } else {
-              const minsLeft=Math.round((FORMING_EXPIRY_MS-age)/60000);
+              const minsLeft=_ft2[instr.key]?Math.max(0,Math.round((FORMING_EXPIRY_MS-(Date.now()-_ft2[instr.key].ts))/60000)):60;
               forming++;
               setBadge(instr.key,'b-forming','FORMING '+conf.score);
               setCard(instr.key,'sig-forming');
@@ -1008,15 +1012,15 @@ async function scan(){
         } // end conf.state check
       } else if(h1.dir==='FORMING'){
         // FORMING z analyzeH1 — ten sam mechanizm expiry
-        const prevFT=formingTimestamps[instr.key];
+        const _fth=getFT();const prevFT=_fth[instr.key];
         const sameDir=prevFT&&prevFT.dir==='H1_FORMING';
         const betterScore=!prevFT||conf.score>prevFT.score+5;
         if(!prevFT||!sameDir||betterScore){
-          formingTimestamps[instr.key]={ts:Date.now(),score:conf.score,dir:'H1_FORMING'};
+          _fth[instr.key]={ts:Date.now(),score:conf.score,dir:'H1_FORMING'};setFT(_fth);
         }
-        const age=Date.now()-formingTimestamps[instr.key].ts;
+        const _fth2=getFT();const age=Date.now()-_fth2[instr.key].ts;
         if(age>FORMING_EXPIRY_MS){
-          delete formingTimestamps[instr.key];
+          const _ftdel=getFT();delete _ftdel[instr.key];setFT(_ftdel);
           setBadge(instr.key,'b-wait','brak setupu');setCard(instr.key,'');
           document.getElementById('body-'+instr.key).innerHTML='';
         } else {
@@ -1028,7 +1032,7 @@ async function scan(){
         }
       } else {
         // Brak kierunku — wyczyść też forming timestamp
-        delete formingTimestamps[instr.key];
+        const _ftclr=getFT();delete _ftclr[instr.key];setFT(_ftclr);
         setBadge(instr.key,'b-wait','brak setupu');setCard(instr.key,'');
         document.getElementById('body-'+instr.key).innerHTML='';
         delete lastSignals[instr.name+'active'];delete lastSignals[instr.name+'short'];
@@ -1128,6 +1132,21 @@ function renderJournal(){
 // ─── INIT ─────────────────────────────────────────────────────
 loadCalendar();loadDXY();loadVIX();loadCOT();renderJournal();
 setInterval(tick,1000);tick();updateRisk();
+// Auto-refresh cen co 60s niezależnie od skanu
+async function refreshPrices(){
+  for(const instr of INSTRUMENTS){
+    try{
+      const data=await fetchYahoo(instr.sym);
+      const{price,prev}=data;
+      document.getElementById('price-'+instr.key).textContent=price.toFixed(instr.dec);
+      const chg=prev?((price-prev)/prev*100):0;
+      const cel=document.getElementById('chg-'+instr.key);
+      cel.textContent=(chg>=0?'+':'')+chg.toFixed(2)+'%';
+      cel.className='ichange '+(chg>=0?'up':'down');
+    }catch(e){}
+  }
+}
+setInterval(refreshPrices,60000);
 </script>
 </body>
 </html>
