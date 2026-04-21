@@ -232,6 +232,8 @@ const INSTRUMENTS=[
 ];
 
 let running=false,nextIn=0,logs=[],newsBlocked=false,lastSignals={};
+let formingTimestamps={};  // {key: {ts, score, dir}} — kiedy setup zaczął się formować
+const FORMING_EXPIRY_MS = 60*60*1000; // 1h
 let mktCtx={dxy:null,dxyCloses:[],dxyTrend:'neutral',vix:null,session:{}};
 
 // Telegram wysyłany wyłącznie przez GitHub Actions (scan.yml) — nie z przeglądarki
@@ -820,7 +822,7 @@ function renderActive(instr,price,dir,srResult,conf,h1,d1,h4,isScalp){
   addLog(instr.name,isL?'active':'short','Score '+conf.score+' · Entry '+ep+' · TP1 '+tp1+' · TP2 '+tp2,tgMsg);
 }
 
-function renderForming(instr,price,h1,conf,d1,h4){
+function renderForming(instr,price,h1,conf,d1,h4,minsLeft){
   const scoreColor=conf.score>=50?'var(--amber)':'var(--red)';
   const dec=instr.dec;
   const atr=h1.atrVal||instr.sl;
@@ -832,12 +834,13 @@ function renderForming(instr,price,h1,conf,d1,h4){
   const potTP1=h1.e20?(isL?h1.e20+atr*1.0:h1.e20-atr*1.0).toFixed(dec):null;
   const potTP2=h1.e20?(isL?h1.e20+atr*instr.atrTpMult:h1.e20-atr*instr.atrTpMult).toFixed(dec):null;
   const reasonsTxt=h1.reasons&&h1.reasons.length?h1.reasons.join(', '):'warunki niekompletne';
+  const expiryTxt=minsLeft!==undefined?'<span style="font-size:10px;color:var(--muted)"> · wygasa za '+minsLeft+'m</span>':'';
 
   document.getElementById('body-'+instr.key).innerHTML=
     '<div class="score-row">'+
     '<div class="score-bar-wrap"><div class="score-bar-fill" style="width:'+conf.score+'%;background:'+scoreColor+'"></div></div>'+
     '<span class="score-val" style="color:'+scoreColor+'">'+conf.score+'</span>'+
-    '<span class="score-state state-forming">FORMING</span>'+
+    '<span class="score-state state-forming">FORMING'+expiryTxt+'</span>'+
     '</div>'+
     '<div class="tf-row">'+
     '<div class="tf-cell"><div class="tf-label">D1</div><div class="tf-val '+tfColor(d1.trend)+'">'+d1.trend+'</div></div>'+
@@ -852,7 +855,12 @@ function renderForming(instr,price,h1,conf,d1,h4){
     (watchLevel?'Obserwuj: <strong>'+watchLevel+'</strong><br>':'')+
     (potEntry&&potSL&&potTP1?'Wstępny setup: Entry <strong>'+potEntry+'</strong> · SL <span style="color:var(--red)">'+potSL+'</span> · TP1 <span style="color:var(--amber)">'+potTP1+'</span> · TP2 <span style="color:var(--green)">'+potTP2+'</span>':'')+'</div>';
 
-  addLog(instr.name,'forming','Score '+conf.score+' @ '+price.toFixed(dec)+' — '+reasonsTxt);
+  // Log deduplication — tylko przy zmianie score
+  const logKey=instr.name+'_forming_score';
+  if(lastSignals[logKey]!==conf.score){
+    lastSignals[logKey]=conf.score;
+    addLog(instr.name,'forming','Score '+conf.score+' @ '+price.toFixed(dec)+' — '+reasonsTxt);
+  }
 }
 
 // ─── MAIN SCAN ───────────────────────────────────────────────
@@ -975,18 +983,52 @@ async function scan(){
             setCard(instr.key,'sig-active'+(isL?'':' short'));
             renderActive(instr,price,h1.dir,srResult,conf,h1,d1,h4,isSignalB);
           } else {
-            forming++;
-            setBadge(instr.key,'b-forming','FORMING '+conf.score);
-            setCard(instr.key,'sig-forming');
-            renderForming(instr,price,h1,conf,d1,h4);
+            // FORMING przy wykrytym kierunku — sprawdź expiry
+            const prevFT=formingTimestamps[instr.key];
+            const sameDir=prevFT&&prevFT.dir===h1.dir;
+            const betterScore=!prevFT||conf.score>prevFT.score+5;
+            if(!prevFT||!sameDir||betterScore){
+              // Nowy lub lepszy setup — resetuj timer
+              formingTimestamps[instr.key]={ts:Date.now(),score:conf.score,dir:h1.dir};
+            }
+            const age=Date.now()-formingTimestamps[instr.key].ts;
+            if(age>FORMING_EXPIRY_MS){
+              // Wygasł po 1h — traktuj jak brak setupu
+              delete formingTimestamps[instr.key];
+              setBadge(instr.key,'b-wait','brak setupu');setCard(instr.key,'');
+              document.getElementById('body-'+instr.key).innerHTML='';
+            } else {
+              const minsLeft=Math.round((FORMING_EXPIRY_MS-age)/60000);
+              forming++;
+              setBadge(instr.key,'b-forming','FORMING '+conf.score);
+              setCard(instr.key,'sig-forming');
+              renderForming(instr,price,h1,conf,d1,h4,minsLeft);
+            }
           }
         } // end conf.state check
       } else if(h1.dir==='FORMING'){
-        forming++;
-        setBadge(instr.key,'b-forming','forming...');
-        setCard(instr.key,'sig-forming');
-        renderForming(instr,price,h1,conf,d1,h4);
+        // FORMING z analyzeH1 — ten sam mechanizm expiry
+        const prevFT=formingTimestamps[instr.key];
+        const sameDir=prevFT&&prevFT.dir==='H1_FORMING';
+        const betterScore=!prevFT||conf.score>prevFT.score+5;
+        if(!prevFT||!sameDir||betterScore){
+          formingTimestamps[instr.key]={ts:Date.now(),score:conf.score,dir:'H1_FORMING'};
+        }
+        const age=Date.now()-formingTimestamps[instr.key].ts;
+        if(age>FORMING_EXPIRY_MS){
+          delete formingTimestamps[instr.key];
+          setBadge(instr.key,'b-wait','brak setupu');setCard(instr.key,'');
+          document.getElementById('body-'+instr.key).innerHTML='';
+        } else {
+          const minsLeft=Math.round((FORMING_EXPIRY_MS-age)/60000);
+          forming++;
+          setBadge(instr.key,'b-forming','forming...');
+          setCard(instr.key,'sig-forming');
+          renderForming(instr,price,h1,conf,d1,h4,minsLeft);
+        }
       } else {
+        // Brak kierunku — wyczyść też forming timestamp
+        delete formingTimestamps[instr.key];
         setBadge(instr.key,'b-wait','brak setupu');setCard(instr.key,'');
         document.getElementById('body-'+instr.key).innerHTML='';
         delete lastSignals[instr.name+'active'];delete lastSignals[instr.name+'short'];
