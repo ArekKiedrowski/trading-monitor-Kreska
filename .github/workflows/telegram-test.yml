@@ -1,3 +1,13 @@
+name: Telegram Test Message
+
+on:
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
       - name: Send test message to Telegram
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
@@ -13,10 +23,12 @@
           fi
           TS="$(date +'%Y-%m-%d %H:%M:%S')"
           MSG="✅ Test z GitHub Actions | Czas: ${TS} | Repo: $GITHUB_REPOSITORY"
+
           HTTP_CODE=$(curl -s -o response.txt -w "%{http_code}" \
             -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TG_CHAT_ID}" \
             --data-urlencode "text=${MSG}")
+
           echo "HTTP_CODE=$HTTP_CODE"
           echo "RESPONSE_START"
           cat response.txt
