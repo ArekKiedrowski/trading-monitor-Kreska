@@ -185,6 +185,15 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .orb-tag.warn{background:var(--abg);color:var(--amber);border:1px solid var(--ab)}
 .orb-tag.bad{background:var(--rbg);color:var(--red);border:1px solid var(--rb)}
 .orb-tag.neu{background:var(--bg3);color:var(--muted2);border:1px solid var(--border)}
+
+/* ─── PULLBACK ALERT ─────────────────────────────────────────── */
+.pullback-box{padding:10px 14px;background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.3);border-radius:var(--rs);margin-bottom:.6rem}
+.pullback-box .pb-title{font-size:12px;font-weight:600;color:var(--purple);margin-bottom:6px}
+.pullback-box .pb-level{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);margin-bottom:4px}
+.pullback-box .pb-desc{font-size:11px;color:var(--muted2);line-height:1.6}
+.pullback-box .pb-dist{font-size:11px;color:var(--amber);margin-top:4px}
+.icard.sig-pullback{border-color:rgba(139,92,246,0.4);background:rgba(139,92,246,0.06)}
+.b-pullback{background:rgba(139,92,246,0.1);color:var(--purple);border:1px solid rgba(139,92,246,0.3)}
 .disc{font-size:11px;color:var(--muted);text-align:center;margin-top:2rem;line-height:1.6;opacity:.5}
 </style>
 </head>
@@ -831,9 +840,33 @@ function renderActive(instr,price,dir,srResult,conf,h1,d1,h4,isScalp){
   else{pathHtml='<div class="path-info path-blocked">⚠️ '+pathResult.obstacles+' poziom(y) S/R między Entry a TP1 — rozważ mniejszy TP</div>';}
 
   const rr=(Math.abs(tp2-ep)/Math.abs(sl-ep)).toFixed(1);
-  const isNear=Math.abs(price-ep)<atr*0.4;
-  const entryType=isNear?'RYNKOWE':'LIMIT';
+  const distToEntry=Math.abs(price-ep);
+  const isNear=distToEntry<atr*0.4;
+  // Pullback detection — cena daleko od entry (>0.4 ATR) ale sygnał aktywny
+  // Znajdź najlepszy poziom pullback: S/R quality>55 lub EMA20
+  const pullbackLevel=srResult&&srResult.quality>=55?srResult.level:h1.e20;
+  const distToPullback=pullbackLevel?Math.abs(price-pullbackLevel):null;
+  const isPullback=!isNear&&distToPullback!==null&&distToPullback<atr*2.5;
+  const entryType=isNear?'RYNKOWE':isPullback?'PULLBACK':'LIMIT';
   const scoreColor=conf.score>=78?'var(--green)':conf.score>=50?'var(--amber)':'var(--red)';
+
+  // Pullback box HTML
+  let pullbackHtml='';
+  if(isPullback){
+    const pbLabel=srResult&&srResult.quality>=55?'S/R Quality '+srResult.quality:'EMA20';
+    const pctDone=Math.round((1-distToPullback/(atr*2.5))*100);
+    const distPts=distToPullback.toFixed(instr.dec);
+    pullbackHtml=
+      '<div class="pullback-box">'+
+      '<div class="pb-title">⏳ CZEKAJ NA PULLBACK — '+pbLabel+'</div>'+
+      '<div class="pb-level">'+(pullbackLevel?pullbackLevel.toFixed(instr.dec):'—')+'</div>'+
+      '<div class="pb-desc">'+
+      'Cena jest '+(isL?'za wysoko':'za nisko')+' — czekaj aż wróci do poziomu.<br>'+
+      'Gdy cena dotknie <strong>'+(pullbackLevel?pullbackLevel.toFixed(instr.dec):'—')+'</strong> → wejście z lepszym R:R'+
+      '</div>'+
+      '<div class="pb-dist">Odległość: '+distPts+' pkt ('+pctDone+'% drogi)</div>'+
+      '</div>';
+  }
 
   // Timeframe alignment row
   const tfColor=trend=>trend==='UP'?'tf-up':trend==='DOWN'?'tf-down':'tf-neu';
@@ -842,7 +875,7 @@ function renderActive(instr,price,dir,srResult,conf,h1,d1,h4,isScalp){
     '<div class="score-row">'+
     '<div class="score-bar-wrap"><div class="score-bar-fill" style="width:'+conf.score+'%;background:'+scoreColor+'"></div></div>'+
     '<span class="score-val" style="color:'+scoreColor+'">'+conf.score+'</span>'+
-    '<span class="score-state state-active">'+(isScalp?'SCALP ⚡':'ACTIVE A')+'</span>'+
+    '<span class="score-state state-active">'+(isScalp?'SCALP ⚡':isPullback?'PULLBACK ⏳':'ACTIVE A')+'</span>'+
     '</div>'+
     '<div class="tf-row">'+
     '<div class="tf-cell"><div class="tf-label">D1</div><div class="tf-val '+tfColor(d1.trend)+'">'+d1.trend+'</div></div>'+
@@ -850,6 +883,7 @@ function renderActive(instr,price,dir,srResult,conf,h1,d1,h4,isScalp){
     '<div class="tf-cell"><div class="tf-label">H1</div><div class="tf-val '+(isL?'tf-up':'tf-down')+'">'+(isL?'LONG':'SHORT')+'</div></div>'+
     '<div class="tf-cell"><div class="tf-label">Lot</div><div class="tf-val" style="color:'+(isScalp?'var(--amber)':'var(--green)')+'">'+activeLot+'</div></div>'+
     '</div>'+
+    pullbackHtml+
     '<div class="trade-grid">'+
     '<div class="tc"><div class="tc-l">Entry ('+entryType+')</div><div class="tc-v '+(isL?'long':'short')+'">'+ep+'</div></div>'+
     '<div class="tc"><div class="tc-l">Stop Loss</div><div class="tc-v sl">'+sl+'</div></div>'+
@@ -868,10 +902,17 @@ function renderActive(instr,price,dir,srResult,conf,h1,d1,h4,isScalp){
     '</div>'+
     '<div class="filters">'+conf.tags.map(t=>'<span class="ft '+t.c+'">'+t.l+'</span>').join('')+'</div>'+
     '<div class="action-box">'+
-    'XTB → '+instr.name+' → entry <strong>'+ep+'</strong> · SL <span class="asl">'+sl+'</span>'+
-    (!isNear?'<br>Zlecenie LIMIT na <strong>'+ep+'</strong>':'')+
-    '<br>TP1 <span class="atp1">'+tp1+'</span> → zamknij 0.025 lota → przesuń SL na entry'+
-    '<br>TP2 <span class="atp2">'+tp2+'</span> → zamknij resztę'+
+    (isPullback?
+      'Czekaj na powrót do <strong>'+pullbackLevel.toFixed(instr.dec)+'</strong> · SL <span class="asl">'+sl+'</span>'+
+      '<br>Gdy cena tam dotrze → zlecenie LIMIT lub rynkowe'+
+      '<br>TP1 <span class="atp1">'+tp1+'</span> → zamknij 50% → SL na entry'+
+      '<br>TP2 <span class="atp2">'+tp2+'</span> → zamknij resztę'
+    :
+      'XTB → '+instr.name+' → entry <strong>'+ep+'</strong> · SL <span class="asl">'+sl+'</span>'+
+      (!isNear?'<br>Zlecenie LIMIT na <strong>'+ep+'</strong>':'')+
+      '<br>TP1 <span class="atp1">'+tp1+'</span> → zamknij 0.025 lota → przesuń SL na entry'+
+      '<br>TP2 <span class="atp2">'+tp2+'</span> → zamknij resztę'
+    )+
     '</div>'+
     '<div class="imeta"><div class="mi">ryzyko: <span>'+risk+' PLN</span></div><div class="mi">cel max: <span>+'+reward+' PLN</span></div><div class="mi">Score: <span style="color:'+scoreColor+'">'+conf.score+'/100</span></div></div>';
 
