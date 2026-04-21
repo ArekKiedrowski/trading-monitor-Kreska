@@ -194,6 +194,31 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .pullback-box .pb-dist{font-size:11px;color:var(--amber);margin-top:4px}
 .icard.sig-pullback{border-color:rgba(139,92,246,0.4);background:rgba(139,92,246,0.06)}
 .b-pullback{background:rgba(139,92,246,0.1);color:var(--purple);border:1px solid rgba(139,92,246,0.3)}
+
+/* ─── MACRO CONTEXT PANEL ────────────────────────────────────── */
+.macro-panel{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:1rem 1.25rem;margin-bottom:.5rem}
+.macro-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:.6rem}
+.macro-cell{background:rgba(255,255,255,0.04);border-radius:var(--rs);padding:8px 10px;text-align:center}
+.macro-lbl{font-size:10px;color:var(--muted);margin-bottom:3px;text-transform:uppercase}
+.macro-val{font-size:13px;font-weight:700}
+.macro-sub{font-size:10px;color:var(--muted2);margin-top:2px}
+.size-box{padding:10px 14px;border-radius:var(--rs);margin-bottom:.6rem;text-align:center}
+.size-full{background:rgba(16,185,129,0.1);border:1px solid var(--gb)}
+.size-half{background:rgba(245,158,11,0.1);border:1px solid var(--ab)}
+.size-skip{background:rgba(239,68,68,0.1);border:1px solid var(--rb)}
+.size-label{font-size:11px;color:var(--muted);margin-bottom:2px}
+.size-val{font-size:18px;font-weight:700}
+.size-full .size-val{color:var(--green)}
+.size-half .size-val{color:var(--amber)}
+.size-skip .size-val{color:var(--red)}
+.weekly-bar{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(255,255,255,0.04);border-radius:var(--rs);margin-bottom:.6rem;font-size:12px}
+.weekly-level{font-weight:700;font-variant-numeric:tabular-nums}
+.weekly-dist{font-size:11px}
+.score-summary{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:var(--rs);margin-bottom:.6rem;background:rgba(255,255,255,0.04)}
+.score-circle{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0}
+.score-circle.full{background:rgba(16,185,129,0.2);color:var(--green);border:2px solid var(--green)}
+.score-circle.half{background:rgba(245,158,11,0.2);color:var(--amber);border:2px solid var(--amber)}
+.score-circle.skip{background:rgba(239,68,68,0.2);color:var(--red);border:2px solid var(--red)}
 .disc{font-size:11px;color:var(--muted);text-align:center;margin-top:2rem;line-height:1.6;opacity:.5}
 </style>
 </head>
@@ -238,6 +263,23 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 </div>
 <div class="slabel" id="orb-label" style="display:none">system o — ny open</div>
 <div class="orb-section" id="orb-section">
+  <div class="macro-panel" id="orb-macro" style="display:none">
+    <div class="orb-header">
+      <span class="orb-title">📊 Kontekst makro</span>
+      <span class="orb-badge" id="macro-badge">ładowanie...</span>
+    </div>
+    <div class="weekly-bar">
+      <span>W.High: <span class="weekly-level" id="w-high">—</span></span>
+      <span class="weekly-dist" id="w-dist">—</span>
+      <span>W.Low: <span class="weekly-level" id="w-low">—</span></span>
+    </div>
+    <div class="macro-grid" id="macro-grid"></div>
+    <div class="score-summary" id="score-summary"></div>
+    <div class="size-box" id="size-box">
+      <div class="size-label">Rekomendowany lot</div>
+      <div class="size-val" id="size-val">—</div>
+    </div>
+  </div>
   <div class="orb-card prep" id="orb-prep" style="display:none">
     <div class="orb-header">
       <span class="orb-title">⏰ NY Open — Przygotowanie</span>
@@ -1234,6 +1276,231 @@ function renderJournal(){
 }
 
 
+// ─── SYSTEM O MACRO CONTEXT ──────────────────────────────────
+
+// Fetch weekly H/L for SPX
+async function fetchWeekly() {
+  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1wk&range=1mo';
+  const proxies = [
+    {p:'https://corsproxy.io/?url=', fn:d=>d},
+    {p:'https://api.allorigins.win/get?url=', fn:d=>d.contents?JSON.parse(d.contents):d}
+  ];
+  for(const{p,fn} of proxies){
+    try{
+      const r=await fetch(p+encodeURIComponent(url),{signal:AbortSignal.timeout(8000)});
+      const d=fn(await r.json());
+      const res=d.chart.result[0];
+      const q=res.indicators.quote[0];
+      const n=q.high.length;
+      // Last completed week (index n-2), current week (n-1)
+      const wHigh=parseFloat(Math.max(q.high[n-2]||0, q.high[n-1]||0).toFixed(1));
+      const wLow=parseFloat(Math.min(q.low[n-2]||9999, q.low[n-1]||9999).toFixed(1));
+      const prevWHigh=parseFloat((q.high[n-2]||0).toFixed(1));
+      const prevWLow=parseFloat((q.low[n-2]||9999).toFixed(1));
+      return{wHigh, wLow, prevWHigh, prevWLow, price:res.meta.regularMarketPrice};
+    }catch(e){console.warn('Weekly proxy:',p,e.message);}
+  }
+  return null;
+}
+
+// Fetch index for RS
+async function fetchIndexChg(sym) {
+  try{
+    const d = await fetchYahoo(sym);
+    const chg = d.prev ? (d.price - d.prev)/d.prev*100 : 0;
+    return {price:d.price, chg};
+  }catch(e){ return null; }
+}
+
+// RS Score (0-2)
+function calcRS(spxChg, ndxData, djiData) {
+  if(!ndxData||!djiData) return {score:1, label:'RS: N/A', cls:'neu'};
+  const ndxChg = ndxData.chg;
+  const djiChg = djiData.chg;
+  const spxUp = spxChg > 0;
+  const ndxAgree = spxUp ? ndxChg > 0 : ndxChg < 0;
+  const djiAgree = spxUp ? djiChg > 0 : djiChg < 0;
+  const pts = (ndxAgree?1:0) + (djiAgree?1:0);
+  const strength = pts===2?'STRONG':pts===1?'MIXED':'WEAK';
+  const cls = pts===2?'up':pts===1?'neu':'down';
+  const arrow = spxChg>=0?'▲':'▼';
+  return {score:pts, label:`RS: ${strength}`, cls,
+    detail:`SPX ${spxChg>=0?'+':''}${spxChg.toFixed(2)}% · NDX ${ndxChg>=0?'+':''}${ndxChg.toFixed(2)}% · DJI ${djiChg>=0?'+':''}${djiChg.toFixed(2)}%`};
+}
+
+// Macro Score DXY+GOLD (0-2)
+function calcMacro(dir, dxyTrend, goldTrend) {
+  // dir = 'LONG' or 'SHORT'
+  let score = 0;
+  // DXY: falling = good for LONG, rising = good for SHORT
+  const dxyOk = dir==='LONG' ? dxyTrend==='down' : dxyTrend==='up';
+  const dxyNeu = dxyTrend==='neutral';
+  if(dxyOk) score++;
+  else if(dxyNeu) score+=0.5;
+  // GOLD: falling = risk-on = good for LONG, rising = risk-off = good for SHORT
+  const goldOk = dir==='LONG' ? goldTrend==='down' : goldTrend==='up';
+  const goldNeu = goldTrend==='neutral';
+  if(goldOk) score++;
+  else if(goldNeu) score+=0.5;
+  score = Math.round(score);
+  const label = score===2?'risk-on ✅':score===1?'mixed ⚠️':'risk-off ❌';
+  const cls = score===2?'up':score===1?'neu':'down';
+  return{score, label, cls,
+    detail:`DXY ${dxyTrend==='up'?'↑ mocny':dxyTrend==='down'?'↓ słaby':'→'} · GOLD ${goldTrend==='up'?'↑ rośnie':goldTrend==='down'?'↓ spada':'→'}`};
+}
+
+// Weekly distance check (HARD filter)
+function checkWeeklyDist(price, wHigh, wLow, atrD1) {
+  if(!wHigh||!wLow||!atrD1) return {ok:true, reason:'brak danych', dist:null};
+  const distH = Math.abs(price - wHigh);
+  const distL = Math.abs(price - wLow);
+  const nearest = Math.min(distH, distL);
+  const threshold = atrD1 * 0.30;
+  const nearLevel = distH < distL ? 'W.High '+wHigh : 'W.Low '+wLow;
+  return {
+    ok: nearest <= threshold,
+    nearest: nearest.toFixed(1),
+    threshold: threshold.toFixed(1),
+    nearLevel,
+    dist: nearest
+  };
+}
+
+// Day score (0-2)
+function calcDayScore(dow) {
+  const d = (dow||'').toLowerCase();
+  if(d.includes('wt')||d.includes('śr')||d.includes('czw')) return {score:2, label:dow+' ✅'};
+  if(d.includes('pon')||d.includes('pią')) return {score:0, label:dow+' ⚠️'};
+  return {score:1, label:dow};
+}
+
+// Final size recommendation
+function calcSize(totalScore, weeklyOk, locationOk, orOk) {
+  if(!weeklyOk||!locationOk||!orOk) return {lot:0, label:'NO TRADE ❌', cls:'size-skip', score:0};
+  if(totalScore>=8) return {lot:0.05, label:'0.05 — FULL SIZE ✅', cls:'size-full', score:totalScore};
+  if(totalScore>=6) return {lot:0.025, label:'0.025 — HALF SIZE ⚠️', cls:'size-half', score:totalScore};
+  return {lot:0, label:'NO TRADE ❌', cls:'size-skip', score:totalScore};
+}
+
+// Fetch D1 ATR for weekly dist threshold
+async function fetchD1ATR() {
+  try{
+    const url='https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1mo';
+    const proxies=[{p:'https://corsproxy.io/?url=',fn:d=>d},{p:'https://api.allorigins.win/get?url=',fn:d=>d.contents?JSON.parse(d.contents):d}];
+    for(const{p,fn} of proxies){
+      try{
+        const r=await fetch(p+encodeURIComponent(url),{signal:AbortSignal.timeout(8000)});
+        const d=fn(await r.json());
+        const res=d.chart.result[0];
+        const q=res.indicators.quote[0];
+        const h=q.high.filter(v=>v),l=q.low.filter(v=>v),c=q.close.filter(v=>v);
+        const trs=[];
+        for(let i=1;i<c.length;i++) trs.push(Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1])));
+        const atr=trs.slice(-14).reduce((a,b)=>a+b,0)/14;
+        return parseFloat(atr.toFixed(1));
+      }catch(e){}
+    }
+  }catch(e){}
+  return null;
+}
+
+// Main macro fetch + render
+async function loadORBMacro(price, orH, orL, orSize, atrM5, locationScore, dayBias) {
+  document.getElementById('orb-macro').style.display='block';
+  document.getElementById('macro-badge').textContent='ładowanie...';
+
+  try{
+    const [weekly, ndx, dji, atrD1] = await Promise.all([
+      fetchWeekly(),
+      fetchIndexChg('^NDX'),
+      fetchIndexChg('^DJI'),
+      fetchD1ATR()
+    ]);
+
+    const spxChg = mktCtx.dxy!==null ? (price-(price/(1+mktCtx.dxyTrend==='up'?0.001:-0.001)))/price*100 : 0;
+    // Use prev close from mktCtx if available, else estimate
+    const spxChgReal = weekly ? (price-weekly.price)/weekly.price*100 : 0;
+
+    // Weekly HARD filter
+    const weeklyCheck = weekly ? checkWeeklyDist(price, weekly.prevWHigh, weekly.prevWLow, atrD1) : {ok:true, reason:'brak danych'};
+
+    // RS
+    const rsResult = calcRS(spxChgReal, ndx, dji);
+
+    // Macro DXY+GOLD
+    const dir = spxChgReal >= 0 ? 'LONG' : 'SHORT';
+    const macroResult = calcMacro(dir, mktCtx.dxyTrend, 'neutral');
+
+    // Day score
+    const t = waw();
+    const dayScore = calcDayScore(t.dow||'');
+
+    // VIX score (0-1)
+    const vixOk = mktCtx.vix && mktCtx.vix < 25;
+
+    // Total soft score (0-9)
+    // RS(0-2) + Macro(0-2) + Location(0-3) + Day(0-2)
+    const totalScore = rsResult.score + macroResult.score + (locationScore||0) + dayScore.score;
+
+    // OR hard filter
+    const orOk = orSize && atrM5 && orSize >= atrM5*0.7 && orSize <= atrM5*15;
+
+    // Size recommendation
+    const sizeRec = calcSize(totalScore, weeklyCheck.ok, locationScore>=2, orOk!==false);
+
+    // Render weekly bar
+    if(weekly){
+      document.getElementById('w-high').textContent = weekly.prevWHigh;
+      document.getElementById('w-low').textContent = weekly.prevWLow;
+      const distTxt = weeklyCheck.ok
+        ? `✅ ${weeklyCheck.nearest} pkt od ${weeklyCheck.nearLevel}`
+        : `❌ ${weeklyCheck.nearest} pkt — za daleko (max ${weeklyCheck.threshold})`;
+      document.getElementById('w-dist').innerHTML = `<span style="color:${weeklyCheck.ok?'var(--green)':'var(--red)'}">${distTxt}</span>`;
+      document.getElementById('w-dist').style.fontSize='11px';
+    }
+
+    // Render macro grid
+    const dxyArrow = mktCtx.dxyTrend==='up'?'↑ mocny':mktCtx.dxyTrend==='down'?'↓ słaby':'→ neutral';
+    const dxyCls = dir==='LONG'?(mktCtx.dxyTrend==='down'?'up':'down'):(mktCtx.dxyTrend==='up'?'up':'down');
+    const goldCls = 'neu';
+
+    document.getElementById('macro-grid').innerHTML=
+      `<div class="macro-cell"><div class="macro-lbl">RS Index</div><div class="macro-val ${rsResult.cls}">${rsResult.label}</div><div class="macro-sub">${rsResult.detail}</div></div>`+
+      `<div class="macro-cell"><div class="macro-lbl">DXY Cash</div><div class="macro-val ${dxyCls}">${dxyArrow}</div><div class="macro-sub">${macroResult.detail.split('·')[0].trim()}</div></div>`+
+      `<div class="macro-cell"><div class="macro-lbl">Macro Flow</div><div class="macro-val ${macroResult.cls}">${macroResult.label}</div><div class="macro-sub">Day: ${dayScore.label}</div></div>`;
+
+    // Score summary
+    const circleCls = totalScore>=8?'full':totalScore>=6?'half':'skip';
+    document.getElementById('score-summary').innerHTML=
+      `<div class="score-circle ${circleCls}">${totalScore}</div>`+
+      `<div style="flex:1"><div style="font-size:13px;font-weight:600">${totalScore>=8?'A Quality — grasz full':totalScore>=6?'B Quality — grasz half':'C Quality — skip'}</div>`+
+      `<div style="font-size:11px;color:var(--muted2);margin-top:2px">RS: ${rsResult.score}/2 · Macro: ${macroResult.score}/2 · Location: ${locationScore||0}/3 · Day: ${dayScore.score}/2</div></div>`;
+
+    // Size box
+    const sizeBox = document.getElementById('size-box');
+    sizeBox.className = 'size-box ' + sizeRec.cls;
+    document.getElementById('size-val').textContent = sizeRec.label;
+
+    // Badge
+    const badge = document.getElementById('macro-badge');
+    badge.textContent = weeklyCheck.ok ? (totalScore>=8?'FULL ✅':totalScore>=6?'HALF ⚠️':'SKIP ❌') : 'NO TRADE ❌';
+    badge.className = 'orb-badge ' + (weeklyCheck.ok&&totalScore>=8?'long':weeklyCheck.ok&&totalScore>=6?'wait':'invalid');
+
+    // Store in orbState for use in signal detection
+    const s = getORBState();
+    s.weeklyOk = weeklyCheck.ok;
+    s.weeklyHigh = weekly?weekly.prevWHigh:null;
+    s.weeklyLow = weekly?weekly.prevWLow:null;
+    s.totalScore = totalScore;
+    s.sizeRec = sizeRec;
+    saveORBState(s);
+
+  }catch(e){
+    console.warn('Macro load error:', e.message);
+    document.getElementById('macro-badge').textContent='błąd';
+  }
+}
+
 // ─── SYSTEM O — NY OPEN BREAKOUT v2 ─────────────────────────
 // State w sessionStorage — przeżywa odświeżenie, reset każdego dnia
 function getORBState() {
@@ -1455,7 +1722,7 @@ function renderORBPanel(s, price, m5, t) {
       document.getElementById('orb-signal-levels').innerHTML=
         '<div class="orb-cell"><div class="orb-lbl">Entry</div><div class="orb-val '+(isL?'up':'down')+'">'+tr.entry+'</div></div>'+
         '<div class="orb-cell"><div class="orb-lbl">Stop Loss</div><div class="orb-val down">'+tr.sl+'</div></div>'+
-        '<div class="orb-cell"><div class="orb-lbl">R:R</div><div class="orb-val neu">1:1.5</div></div>'+
+        '<div class="orb-cell"><div class="orb-lbl">Lot</div><div class="orb-val neu">'+(tr.lot||0.05)+'</div></div>'+
         '<div class="orb-cell"><div class="orb-lbl">TP1 0.75R (50%)</div><div class="orb-val '+(tr.tp1Hit?'up':'neu')+'">'+tr.tp1+'</div></div>'+
         '<div class="orb-cell"><div class="orb-lbl">TP2 1.5R (50%)</div><div class="orb-val up">'+tr.tp2+'</div></div>'+
         '<div class="orb-cell"><div class="orb-lbl">Cena teraz</div><div class="orb-val">'+price.toFixed(1)+'</div></div>';
@@ -1588,7 +1855,21 @@ async function runORB() {
     // OR size check
     const tooSmall=s.atrM5&&s.rangeSize&&s.rangeSize<s.atrM5*0.7;
     const tooBig=s.atrM5&&s.rangeSize&&s.rangeSize>s.atrM5*15;
-    const orValid=s.orHigh&&s.orLow&&!tooSmall&&!tooBig&&s.locationScore>=2;
+    const orOkSize=s.orHigh&&s.orLow&&!tooSmall&&!tooBig;
+
+    // Weekly HARD filter — from cached state
+    const weeklyOk=s.weeklyOk!==false; // default true if not yet loaded
+    const totalScore=s.totalScore||0;
+    const sizeRec=s.sizeRec||{lot:0.05,label:'0.05',cls:'size-full'};
+
+    // Load macro context once when OR is ready (15:45+)
+    if(t.total>=945&&orOkSize&&s.orHigh&&!s._macroLoaded){
+      s._macroLoaded=true;
+      saveORBState(s);
+      loadORBMacro(price,s.orHigh,s.orLow,s.rangeSize,s.atrM5,s.locationScore,null).catch(e=>console.warn('macro:',e.message));
+    }
+
+    const orValid=orOkSize&&s.locationScore>=2&&weeklyOk&&(totalScore===0||totalScore>=6);
 
     // Signal detection (15:45+)
     if(t.total>=945&&orValid&&s.tradeCount<2){
@@ -1614,7 +1895,7 @@ async function runORB() {
           const r=entry-sl;
           s[trSlot]={dir:'LONG',entry,sl,tp1:parseFloat((entry+r*0.75).toFixed(1)),
             tp2:parseFloat((entry+r*1.5).toFixed(1)),r,entryTime:t.total,
-            beActive:false,tp1Hit:false,invalidated:false,type};
+            beActive:false,tp1Hit:false,invalidated:false,type,lot:sizeRec.lot};
           s.tradeCount++;
           if(!s.lastDir) s.lastDir='LONG';
         } else if((!allowedDir||allowedDir==='SHORT')&&lastM15.c<s.orLow-buf&&s.lastDir!=='SHORT'){
@@ -1625,7 +1906,7 @@ async function runORB() {
           const r=sl-entry;
           s[trSlot]={dir:'SHORT',entry,sl,tp1:parseFloat((entry-r*0.75).toFixed(1)),
             tp2:parseFloat((entry-r*1.5).toFixed(1)),r,entryTime:t.total,
-            beActive:false,tp1Hit:false,invalidated:false,type};
+            beActive:false,tp1Hit:false,invalidated:false,type,lot:sizeRec.lot};
           s.tradeCount++;
           if(!s.lastDir) s.lastDir='SHORT';
         }
