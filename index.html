@@ -223,12 +223,12 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 </div>
 
 <script>
-const TD_KEY='__TD_KEY__';
+// TD_KEY usuniety — GOLD i EURUSD uzywa Yahoo Finance (brak CORS)
 
 const INSTRUMENTS=[
   {key:'us500',name:'US500',  sym:'^GSPC',  src:'yahoo',sl:20,    tp:40,    dec:1,lot:0.05,rsiOB:70,rsiOS:30,atrPctMin:0.15,adxMin:22,atrSlMult:0.8, atrTpMult:2.0,srBuffer:0.0,scalpAtrMax:25,  scalpLot:0.03},
-  {key:'gold', name:'GOLD',   sym:'XAU/USD',src:'td',   sl:25,    tp:50,    dec:1,lot:0.05,rsiOB:68,rsiOS:32,atrPctMin:0.20,adxMin:20,atrSlMult:1.0, atrTpMult:2.2,srBuffer:0.3,scalpAtrMax:18,  scalpLot:0.03},
-  {key:'eurusd',name:'EUR/USD',sym:'EUR/USD',src:'td',  sl:0.0015,tp:0.003, dec:5,lot:0.05,rsiOB:65,rsiOS:35,atrPctMin:0.10,adxMin:18,atrSlMult:0.7, atrTpMult:1.8,srBuffer:0.0,scalpAtrMax:0.001,scalpLot:0.03}
+  {key:'gold', name:'GOLD',   sym:'GC=F',   src:'yahoo',sl:25,    tp:50,    dec:1,lot:0.05,rsiOB:68,rsiOS:32,atrPctMin:0.20,adxMin:20,atrSlMult:1.0, atrTpMult:2.2,srBuffer:0.3,scalpAtrMax:18,  scalpLot:0.03},
+  {key:'eurusd',name:'EUR/USD',sym:'EURUSD=X',src:'yahoo',sl:0.0015,tp:0.003, dec:5,lot:0.05,rsiOB:65,rsiOS:35,atrPctMin:0.10,adxMin:18,atrSlMult:0.7, atrTpMult:1.8,srBuffer:0.0,scalpAtrMax:0.001,scalpLot:0.03}
 ];
 
 let running=false,nextIn=0,logs=[],newsBlocked=false,lastSignals={};
