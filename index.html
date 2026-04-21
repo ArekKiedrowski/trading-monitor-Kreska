@@ -1112,28 +1112,18 @@ H4: ${h4.trend}`;
       document.getElementById("j-list").innerHTML = window.trades.map(t => `<div class="jtrade"><div class="jtrade-l"><span class="jdir ${t.dir}">${t.dir === "long" ? "LONG" : "SHORT"}</span><span class="jdate">${t.time}</span></div><span class="jtrade-r"><strong>${t.instr}</strong> ${t.pnl > 0 ? "+" : ""}${t.pnl.toFixed(0)} PLN</span></div>`).join("");
     }
 
-    function exportCSV() {
-      if (!window.trades || !window.trades.length) return;
-      const csv = "Czas,Kierunek,Instrument,Entry,Exit,PL
-" + window.trades.map(t => `${t.time},${t.dir},${t.instr},${t.entry},${t.exit},${t.pnl.toFixed(0)}`).join("
-");
-      const a = document.createElement("a");
-      a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
-      a.download = "trading-journal.csv";
-      a.click();
-    }
-
-    // Init
-    setInterval(tick, 1000);
-    tick();
-    loadCOT();
-    setInterval(loadCOT, 3600000);
-  </script>
-
-  <script>
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("sw.js").catch(e => console.log("SW:", e.message));
-    }
-  </script>
-</body>
-</html>
+  function exportCSV() {
+  if (!window.trades || !window.trades.length) return;
+  const csv =
+    "Czas,Kierunek,Instrument,Entry,Exit,PL\n" +
+    window.trades
+      .map(
+        t =>
+          `${t.time},${t.dir},${t.instr},${t.entry},${t.exit},${t.pnl.toFixed(0)}`
+      )
+      .join("\n");
+  const a = document.createElement("a");
+  a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
+  a.download = "trading-journal.csv";
+  a.click();
+}
