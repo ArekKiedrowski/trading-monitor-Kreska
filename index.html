@@ -1193,296 +1193,439 @@ function renderJournal(){
 }
 
 
-// ─── SYSTEM O — NY OPEN BREAKOUT ─────────────────────────────
-let orbState = {
-  phase: 'idle',    // idle | prep | range | signal | invalid | closed
-  orHigh: null, orLow: null, rangeSize: null,
-  atrM5: null, gap: null, bias: null, htfOk: null,
-  entry: null, sl: null, tp1: null, tp2: null, dir: null,
-  r: null, entryTime: null, beActive: false,
-  tp1Hit: false, invalidated: false
-};
-
-function orbWaw() {
-  const t = waw();
-  return t;
+// ─── SYSTEM O — NY OPEN BREAKOUT v2 ─────────────────────────
+// State w sessionStorage — przeżywa odświeżenie, reset każdego dnia
+function getORBState() {
+  try {
+    const s = JSON.parse(sessionStorage.getItem('orbState')||'{}');
+    // Reset jeśli nowy dzień
+    const today = new Date().toISOString().split('T')[0];
+    if(s.date !== today) return getDefaultORBState(today);
+    return s;
+  } catch(e) { return getDefaultORBState(new Date().toISOString().split('T')[0]); }
 }
+function getDefaultORBState(date) {
+  return {date, phase:'idle', orHigh:null, orLow:null, rangeSize:null,
+    atrM5:null, gap:null, pdHigh:null, pdLow:null, vwap:null,
+    locationScore:0, locationTags:[],
+    trade1:{dir:null,entry:null,sl:null,tp1:null,tp2:null,r:null,entryTime:null,beActive:false,tp1Hit:false,invalidated:false,type:null},
+    trade2:{dir:null,entry:null,sl:null,tp1:null,tp2:null,r:null,entryTime:null,beActive:false,tp1Hit:false,invalidated:false,type:null},
+    tradeCount:0, lastDir:null, dayBias:null, orQuality:null};
+}
+function saveORBState(s) { try{sessionStorage.setItem('orbState',JSON.stringify(s));}catch(e){} }
 
 function orbIsWindow(t) {
-  // Aktywny 15:20–16:30 Warsaw (pn-pt)
   return t.total >= 920 && t.total <= 990 && t.active;
 }
 
 async function fetchM5Yahoo() {
-  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=5m&range=1d';
+  // Fetch 2 days to get previous day data
+  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=5m&range=2d';
   const proxies = [
     {p:'https://corsproxy.io/?url=', fn:d=>d},
     {p:'https://api.allorigins.win/get?url=', fn:d=>d.contents?JSON.parse(d.contents):d}
   ];
-  for(const{p,fn}of proxies){
+  for(const{p,fn} of proxies){
     try{
       const r=await fetch(p+encodeURIComponent(url),{signal:AbortSignal.timeout(8000)});
       const d=fn(await r.json());
       const res=d.chart.result[0];
-      const times=res.timestamp;
+      const times=res.timestamp||[];
       const q=res.indicators.quote[0];
-      const closes=q.close, highs=q.high, lows=q.low, opens=q.open;
-      return{times,closes,highs,lows,opens,price:res.meta.regularMarketPrice};
-    }catch(e){console.warn('M5 proxy failed:',p);}
+      return{times, closes:q.close, highs:q.high, lows:q.low, opens:q.open,
+        volumes:q.volume||[], price:res.meta.regularMarketPrice};
+    }catch(e){console.warn('M5 proxy:',p,e.message);}
   }
   throw new Error('M5 fetch failed');
 }
 
-function calcBias(d1trend, h4trend) {
-  if(d1trend==='UP'&&h4trend==='UP') return {label:'A — Bycze ▲', cls:'ok'};
-  if(d1trend==='DOWN'&&h4trend==='DOWN') return {label:'B — Niedźwiedzie ▼', cls:'bad'};
-  return {label:'C — Neutralny ↔', cls:'warn'};
+// VWAP od początku sesji NY (15:30 Warsaw)
+function calcVWAP(candles) {
+  let cumPV=0, cumV=0;
+  candles.forEach(c=>{
+    const typicalPrice=(c.h+c.l+c.c)/3;
+    const vol=c.v||1;
+    cumPV+=typicalPrice*vol; cumV+=vol;
+  });
+  return cumV>0?cumPV/cumV:null;
 }
 
-function orbQuality(closes, highs, lows) {
-  // Jakość range: clean = mało wicków, spójne zamknięcia
-  if(!closes||closes.length<3) return 'messy';
-  const rangeSize = Math.max(...highs) - Math.min(...lows);
-  const avgBody = closes.map((c,i)=>Math.abs(c-(closes[i-1]||c))).slice(1).reduce((a,b)=>a+b,0)/closes.length;
-  return avgBody/rangeSize > 0.4 ? 'clean' : 'messy';
+// Previous Day High/Low
+function getPDHL(times, closes, highs, lows, wOffset) {
+  const today = new Date().toISOString().split('T')[0];
+  let pdH=null, pdL=null;
+  (times||[]).forEach((ts,i)=>{
+    if(closes[i]===null) return;
+    const d=new Date(ts*1000);
+    const wH=(d.getUTCHours()+wOffset)%24;
+    const dayStr=new Date(d.getTime()+wOffset*3600000).toISOString().split('T')[0];
+    if(dayStr===today) return; // skip today
+    if(wH>=9&&wH<23){ // regular hours
+      if(pdH===null||highs[i]>pdH) pdH=highs[i];
+      if(pdL===null||lows[i]<pdL) pdL=lows[i];
+    }
+  });
+  return{pdH,pdL};
 }
 
-function fmt1(v) { return v!==null&&v!==undefined?v.toFixed(1):'—'; }
+// Location Score (0-3)
+function calcLocationScore(price, pdH, pdL, vwap, orH, orL, atrM5) {
+  let score=0; const tags=[];
+  const buf=atrM5*0.5;
+  // 1. Blisko PDH/PDL?
+  if(pdH&&Math.abs(price-pdH)<buf){score++;tags.push({l:'PDH blisko',c:'orb-tag ok'});}
+  else if(pdL&&Math.abs(price-pdL)<buf){score++;tags.push({l:'PDL blisko',c:'orb-tag ok'});}
+  else{tags.push({l:'PDH/PDL daleko',c:'orb-tag warn'});}
+  // 2. VWAP distance ≥0.3 ATR?
+  if(vwap&&atrM5){
+    const dist=Math.abs(price-vwap);
+    if(dist>=atrM5*0.3){score++;tags.push({l:'VWAP dist OK',c:'orb-tag ok'});}
+    else{tags.push({l:'VWAP blisko',c:'orb-tag warn'});}
+  }
+  // 3. OR dotyka poziomu (PDH/PDL lub round 50pt)?
+  let orTouchesLevel=false;
+  const roundN=50;
+  const nearRound=v=>v&&Math.abs(v%roundN)<atrM5*0.3;
+  if((pdH&&(Math.abs(orH-pdH)<buf||Math.abs(orL-pdH)<buf))||
+     (pdL&&(Math.abs(orH-pdL)<buf||Math.abs(orL-pdL)<buf))||
+     nearRound(orH)||nearRound(orL)){orTouchesLevel=true;}
+  if(orTouchesLevel){score++;tags.push({l:'OR @ poziom',c:'orb-tag ok'});}
+  else{tags.push({l:'OR w próżni',c:'orb-tag warn'});}
+  return{score,tags};
+}
+
+// Day of week assessment
+function getDayBias(dow) {
+  const d=dow.toLowerCase();
+  if(d.includes('pon')||d.includes('pią')) return{label:'⚠️ '+dow+' — słabszy dzień',cls:'warn',sizeMult:0.67};
+  if(d.includes('wt')||d.includes('śr')||d.includes('czw')) return{label:'✅ '+dow+' — dobry dzień',cls:'ok',sizeMult:1.0};
+  return{label:dow,cls:'neu',sizeMult:1.0};
+}
+
+function orbQuality(candles) {
+  if(!candles||candles.length<2) return 'messy';
+  const bodies=candles.map(c=>Math.abs(c.c-c.o));
+  const ranges=candles.map(c=>c.h-c.l);
+  const avgBodyRatio=bodies.reduce((a,b)=>a+b,0)/ranges.reduce((a,b)=>a+b,0);
+  return avgBodyRatio>0.45?'clean':'messy';
+}
+
+function renderORBPanel(s, price, m5, t) {
+  const dayBias = getDayBias(t.dow||'');
+  const wOffset = t.offset||2;
+
+  // Show/hide main section
+  document.getElementById('orb-section').classList.add('visible');
+  document.getElementById('orb-label').style.display='block';
+
+  // ── PREP card ──────────────────────────────────────────────
+  const prepCard = document.getElementById('orb-prep');
+  prepCard.style.display='block';
+  const gapCls=s.gap>=0?'up':'down';
+
+  document.getElementById('orb-prep-grid').innerHTML=
+    '<div class="orb-cell"><div class="orb-lbl">Gap</div><div class="orb-val '+gapCls+'">'+(s.gap!==null?(s.gap>=0?'+':'')+s.gap.toFixed(2)+'%':'—')+'</div></div>'+
+    '<div class="orb-cell"><div class="orb-lbl">ATR M5</div><div class="orb-val neu">'+(s.atrM5?s.atrM5.toFixed(1):'—')+'</div></div>'+
+    '<div class="orb-cell"><div class="orb-lbl">VIX</div><div class="orb-val '+(mktCtx.vix&&mktCtx.vix<25?'up':'down')+'">'+(mktCtx.vix?mktCtx.vix.toFixed(1):'—')+'</div></div>';
+
+  document.getElementById('orb-htf').innerHTML=
+    '<span class="orb-tag '+dayBias.cls+'">'+dayBias.label+'</span>'+
+    (s.vwap?'<span class="orb-tag '+(price>s.vwap?'ok':'bad')+'">VWAP: '+(price>s.vwap?'nad ▲':'pod ▼')+'</span>':'')+
+    (s.pdHigh?'<span class="orb-tag neu">PDH: '+s.pdHigh.toFixed(1)+'</span>':'')+
+    (s.pdLow?'<span class="orb-tag neu">PDL: '+s.pdLow.toFixed(1)+'</span>':'')+
+    '<span class="orb-tag '+(s.tradeCount>=2?'bad':s.tradeCount===1?'warn':'ok')+'">Trades: '+s.tradeCount+'/2</span>';
+
+  document.getElementById('orb-prep-badge').textContent=t.total<930?'ZA '+(930-t.total)+' MIN':'ACTIVE';
+
+  // ── RANGE card ──────────────────────────────────────────────
+  const rangeCard = document.getElementById('orb-range');
+  if(s.orHigh&&s.orLow){
+    rangeCard.style.display='block';
+    const rsz=s.rangeSize||0;
+    const atr=s.atrM5||1;
+    const tooSmall=rsz<atr*0.7;
+    const tooBig=rsz>atr*15;
+    const qCls=s.orQuality==='clean'?'up':'down';
+
+    document.getElementById('orb-range-grid').innerHTML=
+      '<div class="orb-cell"><div class="orb-lbl">OR High</div><div class="orb-val up">'+s.orHigh.toFixed(1)+'</div></div>'+
+      '<div class="orb-cell"><div class="orb-lbl">OR Low</div><div class="orb-val down">'+s.orLow.toFixed(1)+'</div></div>'+
+      '<div class="orb-cell"><div class="orb-lbl">Range</div><div class="orb-val '+(tooSmall||tooBig?'down':'neu')+'">'+rsz.toFixed(1)+' pkt</div></div>'+
+      '<div class="orb-cell"><div class="orb-lbl">Jakość</div><div class="orb-val '+qCls+'">'+(s.orQuality||'—').toUpperCase()+'</div></div>';
+
+    // Location score tags
+    document.getElementById('orb-range-info').innerHTML=
+      '<div style="margin-bottom:6px">'+
+      (s.locationTags||[]).map(t=>'<span class="'+t.c+'" style="margin-right:4px;margin-bottom:4px;display:inline-block">'+t.l+'</span>').join('')+
+      '</div>'+
+      '<strong style="color:'+(s.locationScore>=2?'var(--green)':s.locationScore===1?'var(--amber)':'var(--red)')+'">'+
+      'Location: '+s.locationScore+'/3 '+( s.locationScore>=2?'✅ GRASZ':s.locationScore===1?'⚠️ SŁABE':'❌ SKIP')+
+      '</strong>'+
+      (tooSmall?'<br><span style="color:var(--red)">⚠️ OR za mały (&lt;0.7 ATR) — skip</span>':'')+
+      (tooBig?'<br><span style="color:var(--red)">⚠️ OR za szeroki — skip</span>':'');
+
+    document.getElementById('orb-range-badge').textContent=tooSmall||tooBig?'SKIP':s.locationScore>=2?'TRADING':'SKIP';
+    document.getElementById('orb-range-badge').className='orb-badge '+(tooSmall||tooBig||s.locationScore<2?'invalid':'wait');
+  } else if(t.total>=930){
+    rangeCard.style.display='block';
+    document.getElementById('orb-range-grid').innerHTML='<div style="font-size:12px;color:var(--muted);grid-column:1/-1">Ładowanie OR...</div>';
+    document.getElementById('orb-range-info').textContent='';
+  }
+
+  // ── SIGNAL card ──────────────────────────────────────────────
+  const sigCard = document.getElementById('orb-signal');
+  const activeTrade = s.trade1.entry?s.trade1:(s.trade2.entry?s.trade2:null);
+
+  if(t.total>=945){
+    sigCard.style.display='block';
+
+    if(!activeTrade&&s.tradeCount<2&&s.locationScore>=2){
+      // Waiting for breakout
+      const buf=(s.atrM5||1)*0.15;
+      const orH=s.orHigh, orL=s.orLow;
+      const rsz=s.rangeSize||0;
+      const tooSmall=rsz<(s.atrM5||1)*0.7;
+
+      sigCard.className='orb-card range';
+      document.getElementById('orb-signal-title').textContent='📐 Czekam na wybicie...';
+      document.getElementById('orb-signal-badge').className='orb-badge wait';
+      document.getElementById('orb-signal-badge').textContent='WAITING';
+      document.getElementById('orb-signal-levels').innerHTML=
+        (orH&&orL&&!tooSmall?
+        '<div class="orb-cell"><div class="orb-lbl">Long powyżej</div><div class="orb-val up">'+(orH+buf).toFixed(1)+'</div></div>'+
+        '<div class="orb-cell"><div class="orb-lbl">Short poniżej</div><div class="orb-val down">'+(orL-buf).toFixed(1)+'</div></div>'+
+        '<div class="orb-cell"><div class="orb-lbl">Bufor</div><div class="orb-val neu">'+buf.toFixed(1)+' pkt</div></div>'
+        :'<div style="color:var(--muted);font-size:12px;grid-column:1/-1">Brak danych OR</div>');
+      document.getElementById('orb-timer').style.display='none';
+      document.getElementById('orb-signal-info').textContent='Zamknięta świeca M15 poza rangem → wejście';
+
+    } else if(activeTrade&&activeTrade.entry){
+      // Active trade display
+      const tr=activeTrade;
+      const isL=tr.dir==='LONG';
+      const isReversal=tr.type==='reversal';
+      sigCard.className='orb-card signal-'+(isL?'long':'short')+(tr.invalidated?' invalid':'');
+      document.getElementById('orb-signal-title').textContent=
+        (tr.invalidated?'❌ ':(isReversal?'🔄 REVERSAL ':'🚀 ORB '))+
+        (isL?'LONG ▲':'SHORT ▼')+' US500'+(tr.tp1Hit?' · TP1 ✅':'');
+      document.getElementById('orb-signal-badge').className='orb-badge '+(tr.invalidated?'invalid':isL?'long':'short');
+      document.getElementById('orb-signal-badge').textContent=tr.invalidated?'INVALID':isL?'LONG':'SHORT';
+
+      document.getElementById('orb-signal-levels').innerHTML=
+        '<div class="orb-cell"><div class="orb-lbl">Entry</div><div class="orb-val '+(isL?'up':'down')+'">'+tr.entry+'</div></div>'+
+        '<div class="orb-cell"><div class="orb-lbl">Stop Loss</div><div class="orb-val down">'+tr.sl+'</div></div>'+
+        '<div class="orb-cell"><div class="orb-lbl">R:R</div><div class="orb-val neu">1:1.5</div></div>'+
+        '<div class="orb-cell"><div class="orb-lbl">TP1 0.75R (50%)</div><div class="orb-val '+(tr.tp1Hit?'up':'neu')+'">'+tr.tp1+'</div></div>'+
+        '<div class="orb-cell"><div class="orb-lbl">TP2 1.5R (50%)</div><div class="orb-val up">'+tr.tp2+'</div></div>'+
+        '<div class="orb-cell"><div class="orb-lbl">Cena teraz</div><div class="orb-val">'+price.toFixed(1)+'</div></div>';
+
+      // Timer
+      if(tr.entryTime&&!tr.tp1Hit&&!tr.invalidated){
+        const elapsed=t.total-tr.entryTime;
+        const remaining=Math.max(0,30-elapsed);
+        const halfR=tr.r*0.5;
+        const reached=isL?(price>=tr.entry+halfR):(price<=tr.entry-halfR);
+        const timerEl=document.getElementById('orb-timer');
+        timerEl.style.display='block';
+        if(reached){timerEl.textContent='✅ +0.5R osiągnięty — time stop nieaktywny';timerEl.className='orb-timer';}
+        else{timerEl.textContent='⏱ Time stop: '+remaining+'min pozostało';timerEl.className='orb-timer'+(remaining<=10?' danger':'');}
+      } else {document.getElementById('orb-timer').style.display='none';}
+
+      document.getElementById('orb-signal-info').innerHTML=
+        (tr.beActive?'🔒 BE aktywny — SL na entry '+tr.entry+'<br>':'')+
+        (tr.tp1Hit?'✅ TP1 hit — runner do TP2 '+tr.tp2+'<br>':'')+
+        (tr.invalidated?'❌ '+(tr.type==='timestop'?'Time stop — brak +0.5R w 30min':'Invalidacja — cena wróciła >50% range'):'');
+
+      // Check reversal opportunity
+      if(tr.invalidated&&s.tradeCount<2&&!s.trade2.entry){
+        const oppDir=tr.dir==='LONG'?'SHORT':'LONG';
+        const htfOk=(oppDir==='LONG'&&mktCtx.dxyTrend==='down')||(oppDir==='SHORT'&&mktCtx.dxyTrend==='up')||true;
+        if(htfOk){
+          document.getElementById('orb-signal-info').innerHTML+=
+            '<br><br>🔄 <strong>REVERSAL SETUP:</strong> '+oppDir+' po failed breakout<br>'+
+            'Czekaj na zamkniętą M15 '+(oppDir==='LONG'?'powyżej OR High '+s.orHigh.toFixed(1):'poniżej OR Low '+s.orLow.toFixed(1));
+        }
+      }
+    } else if(s.tradeCount>=2){
+      sigCard.className='orb-card invalid';
+      document.getElementById('orb-signal-title').textContent='🔴 Koniec dnia — max 2 trade'y';
+      document.getElementById('orb-signal-badge').className='orb-badge invalid';
+      document.getElementById('orb-signal-badge').textContent='DONE';
+      document.getElementById('orb-signal-levels').innerHTML='';
+      document.getElementById('orb-timer').style.display='none';
+      document.getElementById('orb-signal-info').textContent='Wykorzystano limit 2 trade'ów. Do jutra.';
+    } else if(s.locationScore<2){
+      sigCard.className='orb-card invalid';
+      document.getElementById('orb-signal-title').textContent='❌ Location skip — środek niczego';
+      document.getElementById('orb-signal-badge').className='orb-badge invalid';
+      document.getElementById('orb-signal-badge').textContent='SKIP';
+      document.getElementById('orb-signal-levels').innerHTML='';
+      document.getElementById('orb-timer').style.display='none';
+      document.getElementById('orb-signal-info').textContent='Location score '+s.locationScore+'/3 — za niski. Brak setupu dzisiaj.';
+    }
+  }
+}
 
 async function runORB() {
-  const t = orbWaw();
-  if(!orbIsWindow(t)) {
-    // Reset o północy / poza oknem
-    if(orbState.phase !== 'idle') {
-      orbState = {phase:'idle',orHigh:null,orLow:null,rangeSize:null,atrM5:null,gap:null,bias:null,htfOk:null,entry:null,sl:null,tp1:null,tp2:null,dir:null,r:null,entryTime:null,beActive:false,tp1Hit:false,invalidated:false};
-    }
+  const t = waw();
+  if(!orbIsWindow(t)){
     document.getElementById('orb-section').classList.remove('visible');
     document.getElementById('orb-label').style.display='none';
     return;
   }
 
-  document.getElementById('orb-section').classList.add('visible');
-  document.getElementById('orb-label').style.display='block';
+  let s = getORBState();
 
-  try {
-    const m5 = await fetchM5Yahoo();
-    const now = new Date();
-    const wOffset = t.offset;
+  try{
+    const m5=await fetchM5Yahoo();
+    const wOffset=t.offset;
+    const price=m5.price;
 
-    // Filtruj świece z sesji Warsaw 15:30–15:45 (OR window)
-    const orStart = 15*60+30; // 15:30 w minutach
-    const orEnd   = 15*60+45; // 15:45
-
-    // Wszystkie świece z dziś
-    const todayCandles = [];
+    // Build candle list with Warsaw time
+    const allCandles=[];
     (m5.times||[]).forEach((ts,i)=>{
-      const d = new Date(ts*1000);
-      const wH = (d.getUTCHours()+wOffset)%24;
-      const wM = d.getUTCMinutes();
-      const wMin = wH*60+wM;
-      if(m5.closes[i]!==null) todayCandles.push({wMin,c:m5.closes[i],h:m5.highs[i],l:m5.lows[i],o:m5.opens[i]});
+      if(m5.closes[i]===null) return;
+      const d=new Date(ts*1000);
+      const wMs=d.getTime()+wOffset*3600000;
+      const wDate=new Date(wMs);
+      const wH=wDate.getUTCHours(),wM=wDate.getUTCMinutes();
+      const wMin=wH*60+wM;
+      const dayStr=wDate.toISOString().split('T')[0];
+      allCandles.push({wMin,wH,dayStr,c:m5.closes[i],h:m5.highs[i],l:m5.lows[i],o:m5.opens[i],v:m5.volumes[i]||0});
     });
 
-    // Gap — yesterday close vs today open
-    const firstCandle = todayCandles[0];
-    const prevClose = m5.closes.filter(v=>v!=null).slice(-50)[0] || m5.price;
-    const gapPct = firstCandle ? ((firstCandle.o - prevClose)/prevClose*100) : 0;
+    const today=new Date(new Date().getTime()+wOffset*3600000).toISOString().split('T')[0];
+    const todayCandles=allCandles.filter(c=>c.dayStr===today);
+    const prevCandles=allCandles.filter(c=>c.dayStr!==today&&c.wH>=9&&c.wH<23);
 
-    // ATR M5 — ostatnie 14 świec
-    const recentC = todayCandles.slice(-15).map(c=>c.c);
-    const recentH = todayCandles.slice(-15).map(c=>c.h);
-    const recentL = todayCandles.slice(-15).map(c=>c.l);
-    let atrM5 = 0;
-    if(recentC.length>=2){
-      const trs=[];
-      for(let i=1;i<recentC.length;i++) trs.push(Math.max(recentH[i]-recentL[i],Math.abs(recentH[i]-recentC[i-1]),Math.abs(recentL[i]-recentC[i-1])));
-      atrM5 = trs.reduce((a,b)=>a+b,0)/trs.length;
-    }
-    orbState.atrM5 = atrM5;
-    orbState.gap = gapPct;
-
-    // HTF bias z mktCtx
-    const d1t = mktCtx.session && mktCtx.session.d1trend || 'NEUTRAL';
-    const h4t = mktCtx.session && mktCtx.session.h4trend || 'NEUTRAL';
-    const bias = calcBias('NEUTRAL','NEUTRAL'); // uproszczenie — bez pełnego D1/H4 fetch
-
-    // OR candles (15:30–15:45)
-    const orCandles = todayCandles.filter(c=>c.wMin>=orStart&&c.wMin<orEnd);
-
-    // PHASE: PREP (15:20–15:30)
-    if(t.total >= 920 && t.total < 930) {
-      orbState.phase = 'prep';
-      document.getElementById('orb-prep').style.display='block';
-      document.getElementById('orb-range').style.display='none';
-      document.getElementById('orb-signal').style.display='none';
-
-      document.getElementById('orb-prep-grid').innerHTML=
-        '<div class="orb-cell"><div class="orb-lbl">Gap</div><div class="orb-val '+(gapPct>=0?'up':'down')+'">'+gapPct.toFixed(2)+'%</div></div>'+
-        '<div class="orb-cell"><div class="orb-lbl">ATR M5</div><div class="orb-val neu">'+atrM5.toFixed(1)+'</div></div>'+
-        '<div class="orb-cell"><div class="orb-lbl">VIX</div><div class="orb-val '+(mktCtx.vix&&mktCtx.vix<25?'up':'down')+'">'+(mktCtx.vix?mktCtx.vix.toFixed(1):'—')+'</div></div>';
-
-      document.getElementById('orb-htf').innerHTML=
-        '<span class="orb-tag '+bias.cls+'">'+bias.label+'</span>'+
-        '<span class="orb-tag '+(mktCtx.vix&&mktCtx.vix<25?'ok':'warn')+'">VIX '+(mktCtx.vix?mktCtx.vix.toFixed(1):'—')+'</span>'+
-        '<span class="orb-tag neu">HTF: czeka</span>';
-
-      document.getElementById('orb-prep-info').textContent='Opening Range za '+(930-t.total)+' min. Czekaj na 15:30.';
+    // Gap
+    const firstToday=todayCandles[0];
+    const lastPrev=prevCandles[prevCandles.length-1];
+    if(firstToday&&lastPrev&&s.gap===null){
+      s.gap=parseFloat(((firstToday.o-lastPrev.c)/lastPrev.c*100).toFixed(3));
     }
 
-    // PHASE: OR BUILDING (15:30–15:45)
-    else if(t.total >= 930 && t.total < 945) {
-      orbState.phase = 'range';
-      document.getElementById('orb-prep').style.display='block';
-      document.getElementById('orb-range').style.display='block';
-      document.getElementById('orb-signal').style.display='none';
-
-      if(orCandles.length>0){
-        const orH = Math.max(...orCandles.map(c=>c.h));
-        const orL = Math.min(...orCandles.map(c=>c.l));
-        const rsz = orH-orL;
-        const quality = orbQuality(orCandles.map(c=>c.c),orCandles.map(c=>c.h),orCandles.map(c=>c.l));
-        orbState.orHigh=orH; orbState.orLow=orL; orbState.rangeSize=rsz;
-
-        document.getElementById('orb-range-grid').innerHTML=
-          '<div class="orb-cell"><div class="orb-lbl">OR High</div><div class="orb-val up">'+orH.toFixed(1)+'</div></div>'+
-          '<div class="orb-cell"><div class="orb-lbl">OR Low</div><div class="orb-val down">'+orL.toFixed(1)+'</div></div>'+
-          '<div class="orb-cell"><div class="orb-lbl">Range</div><div class="orb-val neu">'+rsz.toFixed(1)+' pkt</div></div>'+
-          '<div class="orb-cell"><div class="orb-lbl">Jakość</div><div class="orb-val '+(quality==='clean'?'up':'down')+'">'+quality.toUpperCase()+'</div></div>';
-
-        const tooWide = atrM5>0 && rsz > atrM5*15;
-        document.getElementById('orb-range-info').textContent=
-          (tooWide?'⚠️ Range zbyt szeroki — pomijamy setup. ':'✅ Range OK. ')+
-          'Czekam na wybicie po 15:45.';
-        document.getElementById('orb-range-badge').textContent='BUDOWANIE';
+    // ATR M5
+    if(!s.atrM5){
+      const rc=todayCandles.slice(-15);
+      if(rc.length>=2){
+        const trs=[];
+        for(let i=1;i<rc.length;i++) trs.push(Math.max(rc[i].h-rc[i].l,Math.abs(rc[i].h-rc[i-1].c),Math.abs(rc[i].l-rc[i-1].c)));
+        s.atrM5=parseFloat((trs.reduce((a,b)=>a+b,0)/trs.length).toFixed(2));
       }
     }
 
-    // PHASE: SIGNAL CHECK (15:45–16:30)
-    else if(t.total >= 945 && t.total <= 990) {
-      document.getElementById('orb-prep').style.display='block';
-      document.getElementById('orb-range').style.display='block';
-      document.getElementById('orb-signal').style.display='block';
+    // Previous Day High/Low
+    if(!s.pdHigh&&prevCandles.length>0){
+      s.pdHigh=parseFloat(Math.max(...prevCandles.map(c=>c.h)).toFixed(1));
+      s.pdLow=parseFloat(Math.min(...prevCandles.map(c=>c.l)).toFixed(1));
+    }
 
-      if(orbState.invalidated){
-        document.getElementById('orb-signal').className='orb-card invalid';
-        document.getElementById('orb-signal-badge').className='orb-badge invalid';
-        document.getElementById('orb-signal-badge').textContent='INVALID';
-        document.getElementById('orb-signal-title').textContent='❌ Setup wygasł';
-        document.getElementById('orb-timer').style.display='none';
-        return;
-      }
+    // OR candles 15:30–15:45 (930–945 min)
+    const orCandles=todayCandles.filter(c=>c.wMin>=930&&c.wMin<945);
 
-      const price = m5.price;
-      const orH = orbState.orHigh, orL = orbState.orLow;
-      if(!orH||!orL) return;
+    if(orCandles.length>0&&!s.orHigh){
+      s.orHigh=parseFloat(Math.max(...orCandles.map(c=>c.h)).toFixed(1));
+      s.orLow=parseFloat(Math.min(...orCandles.map(c=>c.l)).toFixed(1));
+      s.rangeSize=parseFloat((s.orHigh-s.orLow).toFixed(1));
+      s.orQuality=orbQuality(orCandles);
+    }
 
-      const buf = atrM5*0.15;
-      const rsz = orH-orL;
-      const midRange = orL + rsz*0.5;
+    // VWAP from NY open candles (15:30+)
+    const nyCandles=todayCandles.filter(c=>c.wMin>=930);
+    if(nyCandles.length>0){
+      s.vwap=parseFloat(calcVWAP(nyCandles).toFixed(2));
+    }
 
-      // Sprawdź ostatnią zamkniętą świecę M15
-      const m15Candles = todayCandles.filter(c=>c.wMin>=930);
-      const lastM15 = m15Candles.length>0?m15Candles[m15Candles.length-1]:null;
+    // Location score
+    if(s.orHigh&&s.atrM5){
+      const loc=calcLocationScore(price,s.pdHigh,s.pdLow,s.vwap,s.orHigh,s.orLow,s.atrM5);
+      s.locationScore=loc.score;
+      s.locationTags=loc.tags;
+    }
 
-      // Wejście — jeśli nie mamy jeszcze sygnału
-      if(!orbState.entry && lastM15){
-        if(lastM15.c > orH+buf){
-          // LONG breakout
-          orbState.dir='LONG';
-          orbState.entry=parseFloat((orH+buf).toFixed(1));
-          orbState.sl=parseFloat(orL.toFixed(1));
-          orbState.r=orbState.entry-orbState.sl;
-          orbState.tp1=parseFloat((orbState.entry+orbState.r*0.75).toFixed(1));
-          orbState.tp2=parseFloat((orbState.entry+orbState.r*1.5).toFixed(1));
-          orbState.entryTime=t.total;
-          orbState.phase='signal';
-        } else if(lastM15.c < orL-buf){
-          // SHORT breakout
-          orbState.dir='SHORT';
-          orbState.entry=parseFloat((orL-buf).toFixed(1));
-          orbState.sl=parseFloat(orH.toFixed(1));
-          orbState.r=orbState.sl-orbState.entry;
-          orbState.tp1=parseFloat((orbState.entry-orbState.r*0.75).toFixed(1));
-          orbState.tp2=parseFloat((orbState.entry-orbState.r*1.5).toFixed(1));
-          orbState.entryTime=t.total;
-          orbState.phase='signal';
+    // OR size check
+    const tooSmall=s.atrM5&&s.rangeSize&&s.rangeSize<s.atrM5*0.7;
+    const tooBig=s.atrM5&&s.rangeSize&&s.rangeSize>s.atrM5*15;
+    const orValid=s.orHigh&&s.orLow&&!tooSmall&&!tooBig&&s.locationScore>=2;
+
+    // Signal detection (15:45+)
+    if(t.total>=945&&orValid&&s.tradeCount<2){
+      const buf=(s.atrM5||1)*0.15;
+      const midRange=s.orLow+s.rangeSize*0.5;
+      const m15Candles=todayCandles.filter(c=>c.wMin>=930);
+      const lastM15=m15Candles.length>0?m15Candles[m15Candles.length-1]:null;
+
+      // Determine which trade slot is active
+      const trSlot=!s.trade1.entry?'trade1':'trade2';
+      const tr=s[trSlot];
+
+      // NEW ENTRY — no active trade in this slot yet
+      if(!tr.entry&&lastM15){
+        const isReversal=s.lastDir!==null; // second trade is reversal if first failed
+        const allowedDir=isReversal?(s.lastDir==='LONG'?'SHORT':'LONG'):null; // reversal must be opposite
+
+        if((!allowedDir||allowedDir==='LONG')&&lastM15.c>s.orHigh+buf&&s.lastDir!=='LONG'){
+          // LONG breakout or reversal long
+          const type=isReversal?'reversal':'orb';
+          const entry=parseFloat((s.orHigh+buf).toFixed(1));
+          const sl=parseFloat(s.orLow.toFixed(1));
+          const r=entry-sl;
+          s[trSlot]={dir:'LONG',entry,sl,tp1:parseFloat((entry+r*0.75).toFixed(1)),
+            tp2:parseFloat((entry+r*1.5).toFixed(1)),r,entryTime:t.total,
+            beActive:false,tp1Hit:false,invalidated:false,type};
+          s.tradeCount++;
+          if(!s.lastDir) s.lastDir='LONG';
+        } else if((!allowedDir||allowedDir==='SHORT')&&lastM15.c<s.orLow-buf&&s.lastDir!=='SHORT'){
+          // SHORT breakout or reversal short
+          const type=isReversal?'reversal':'orb';
+          const entry=parseFloat((s.orLow-buf).toFixed(1));
+          const sl=parseFloat(s.orHigh.toFixed(1));
+          const r=sl-entry;
+          s[trSlot]={dir:'SHORT',entry,sl,tp1:parseFloat((entry-r*0.75).toFixed(1)),
+            tp2:parseFloat((entry-r*1.5).toFixed(1)),r,entryTime:t.total,
+            beActive:false,tp1Hit:false,invalidated:false,type};
+          s.tradeCount++;
+          if(!s.lastDir) s.lastDir='SHORT';
         }
       }
 
-      // Invalidacja — cena wróciła >50% range (na zamknięciu świecy)
-      if(orbState.entry&&lastM15){
-        const isL=orbState.dir==='LONG';
-        if(isL&&lastM15.c<midRange) orbState.invalidated=true;
-        if(!isL&&lastM15.c>midRange) orbState.invalidated=true;
-      }
+      // MANAGE ACTIVE TRADE
+      ['trade1','trade2'].forEach(slot=>{
+        const tr=s[slot];
+        if(!tr.entry||tr.invalidated) return;
+        const isL=tr.dir==='LONG';
 
-      // Time stop — 30 min bez +0.5R
-      if(orbState.entry&&orbState.entryTime){
-        const elapsed=t.total-orbState.entryTime;
-        const isL=orbState.dir==='LONG';
-        const halfR=orbState.r*0.5;
-        const reached05R=isL?(price>=orbState.entry+halfR):(price<=orbState.entry-halfR);
-        if(elapsed>=30&&!reached05R&&!orbState.tp1Hit){
-          orbState.invalidated=true;
+        // TP1 hit → BE active
+        if(!tr.tp1Hit&&((isL&&price>=tr.tp1)||(!isL&&price<=tr.tp1))){
+          tr.tp1Hit=true; tr.beActive=true;
         }
-        // Timer display
-        const remaining=Math.max(0,30-elapsed);
-        const timerEl=document.getElementById('orb-timer');
-        timerEl.textContent='⏱ Time stop: '+String(Math.floor(remaining)).padStart(2,'0')+':00';
-        timerEl.className='orb-timer'+(remaining<=10?' danger':'');
-      }
-
-      // Render sygnału
-      if(orbState.entry){
-        const isL=orbState.dir==='LONG';
-        const signalCard=document.getElementById('orb-signal');
-        signalCard.className='orb-card signal-'+(isL?'long':'short');
-        document.getElementById('orb-signal-title').textContent=(isL?'🚀 LONG BREAKOUT':'🔻 SHORT BREAKOUT')+' US500';
-        const badge=document.getElementById('orb-signal-badge');
-        badge.className='orb-badge '+(isL?'long':'short');
-        badge.textContent=isL?'LONG ▲':'SHORT ▼';
-
-        document.getElementById('orb-signal-levels').innerHTML=
-          '<div class="orb-cell"><div class="orb-lbl">Entry</div><div class="orb-val '+(isL?'up':'down')+'">'+orbState.entry+'</div></div>'+
-          '<div class="orb-cell"><div class="orb-lbl">Stop Loss</div><div class="orb-val down">'+orbState.sl+'</div></div>'+
-          '<div class="orb-cell"><div class="orb-lbl">R:R</div><div class="orb-val neu">1:1.5</div></div>'+
-          '<div class="orb-cell"><div class="orb-lbl">TP1 (50%) 0.75R</div><div class="orb-val up">'+orbState.tp1+'</div></div>'+
-          '<div class="orb-cell"><div class="orb-lbl">TP2 (50%) 1.5R</div><div class="orb-val up">'+orbState.tp2+'</div></div>'+
-          '<div class="orb-cell"><div class="orb-lbl">Cena</div><div class="orb-val">'+price.toFixed(1)+'</div></div>';
-
-        // BE check
-        const halfR=orbState.r*0.5;
-        const isL2=isL;
-        const reached05R=isL2?(price>=orbState.entry+halfR):(price<=orbState.entry-halfR);
-        const tp1Hit=isL2?(price>=orbState.tp1):(price<=orbState.tp1);
-        if(tp1Hit&&!orbState.tp1Hit){orbState.tp1Hit=true;orbState.beActive=true;}
-
-        document.getElementById('orb-signal-info').innerHTML=
-          (orbState.beActive?'🔒 BE aktywny — SL na entry '+orbState.entry+'<br>':'')+
-          (tp1Hit?'✅ TP1 osiągnięty — zamknij 50%<br>':'')+
-          'Range: '+rsz.toFixed(1)+' pkt · Bufor: '+buf.toFixed(1)+' · '+(orbState.beActive||tp1Hit?'Runner do TP2':'Czekaj na ruch');
-      } else {
-        // Brak sygnału jeszcze
-        document.getElementById('orb-signal').className='orb-card range';
-        document.getElementById('orb-signal-badge').className='orb-badge wait';
-        document.getElementById('orb-signal-badge').textContent='CZEKAM NA WYBICIE';
-        document.getElementById('orb-signal-title').textContent='📐 Waiting for breakout...';
-        document.getElementById('orb-signal-levels').innerHTML=
-          '<div class="orb-cell"><div class="orb-lbl">Long powyżej</div><div class="orb-val up">'+(orH+buf).toFixed(1)+'</div></div>'+
-          '<div class="orb-cell"><div class="orb-lbl">Short poniżej</div><div class="orb-val down">'+(orL-buf).toFixed(1)+'</div></div>'+
-          '<div class="orb-cell"><div class="orb-lbl">Cena</div><div class="orb-val">'+price.toFixed(1)+'</div></div>';
-        document.getElementById('orb-signal-info').textContent='Czekam na zamkniętą świecę M15 poza rangem + bufor '+buf.toFixed(1)+' pkt';
-        document.getElementById('orb-timer').style.display='none';
-      }
+        // Invalidation: price returns >50% range on close
+        if(lastM15&&!tr.tp1Hit){
+          if(isL&&lastM15.c<midRange){tr.invalidated=true;tr.type='invalidated';}
+          if(!isL&&lastM15.c>midRange){tr.invalidated=true;tr.type='invalidated';}
+        }
+        // Time stop: 30min, no +0.5R
+        if(tr.entryTime&&!tr.tp1Hit&&!tr.invalidated){
+          const elapsed=t.total-tr.entryTime;
+          const halfR=tr.r*0.5;
+          const reached=isL?(price>=tr.entry+halfR):(price<=tr.entry-halfR);
+          if(elapsed>=30&&!reached){tr.invalidated=true;tr.type='timestop';}
+        }
+      });
     }
-  } catch(e) {
-    console.warn('ORB error:', e.message);
+
+    saveORBState(s);
+    renderORBPanel(s, price, m5, t);
+
+  }catch(e){
+    console.warn('ORB error:',e.message);
+    renderORBPanel(s, 0, null, t);
   }
 }
 
-// Uruchamiaj System O co 60s gdy w oknie czasowym
+// Run System O co 60s w oknie, od razu przy ładowaniu
 setInterval(()=>{const t=waw();if(orbIsWindow(t))runORB();}, 60000);
-// Sprawdź od razu przy ładowaniu
 setTimeout(runORB, 2000);
 
 // ─── INIT ─────────────────────────────────────────────────────
