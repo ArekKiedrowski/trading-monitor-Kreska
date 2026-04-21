@@ -228,9 +228,9 @@ const TG_TOKEN='7980338718:AAFqiQTRwT99Qqql6SFNxgDQUBdJhk9dxtM';
 const TG_CHAT='1599380596';
 
 const INSTRUMENTS=[
-  {key:'us500',name:'US500',  sym:'^GSPC',  src:'yahoo',sl:20,    tp:40,    dec:1,lot:0.05,rsiOB:70,rsiOS:30,atrPctMin:0.15,adxMin:22,atrSlMult:0.8, atrTpMult:2.0,srBuffer:0.0},
-  {key:'gold', name:'GOLD',   sym:'XAU/USD',src:'td',   sl:25,    tp:50,    dec:1,lot:0.05,rsiOB:68,rsiOS:32,atrPctMin:0.20,adxMin:20,atrSlMult:1.0, atrTpMult:2.2,srBuffer:0.3},
-  {key:'eurusd',name:'EUR/USD',sym:'EUR/USD',src:'td',  sl:0.0015,tp:0.003, dec:5,lot:0.05,rsiOB:65,rsiOS:35,atrPctMin:0.10,adxMin:18,atrSlMult:0.7, atrTpMult:1.8,srBuffer:0.0}
+  {key:'us500',name:'US500',  sym:'^GSPC',  src:'yahoo',sl:20,    tp:40,    dec:1,lot:0.05,rsiOB:70,rsiOS:30,atrPctMin:0.15,adxMin:22,atrSlMult:0.8, atrTpMult:2.0,srBuffer:0.0,scalpAtrMax:25,  scalpLot:0.03},
+  {key:'gold', name:'GOLD',   sym:'XAU/USD',src:'td',   sl:25,    tp:50,    dec:1,lot:0.05,rsiOB:68,rsiOS:32,atrPctMin:0.20,adxMin:20,atrSlMult:1.0, atrTpMult:2.2,srBuffer:0.3,scalpAtrMax:18,  scalpLot:0.03},
+  {key:'eurusd',name:'EUR/USD',sym:'EUR/USD',src:'td',  sl:0.0015,tp:0.003, dec:5,lot:0.05,rsiOB:65,rsiOS:35,atrPctMin:0.10,adxMin:18,atrSlMult:0.7, atrTpMult:1.8,srBuffer:0.0,scalpAtrMax:0.001,scalpLot:0.03}
 ];
 
 let running=false,nextIn=0,logs=[],newsBlocked=false,lastSignals={};
@@ -342,6 +342,27 @@ function countTouches(level,h,l,c,tol){
   for(let i=0;i<c.length;i++)if(Math.abs(l[i]-level)<t||Math.abs(h[i]-level)<t||Math.abs(c[i]-level)<t)n++;
   return n;
 }
+function detectRecentLiqSweep(h,l,c,dir,lookback){
+  // Detect if liquidity sweep happened in last 2-3 candles
+  lookback=lookback||3;
+  const n=c.length;
+  if(n<lookback+5)return false;
+  const price=c[n-1];
+  // Get recent range (last 10 candles before the sweep window)
+  const priorHigh=Math.max(...h.slice(n-lookback-10,n-lookback));
+  const priorLow=Math.min(...l.slice(n-lookback-10,n-lookback));
+  for(let i=n-lookback;i<n-1;i++){
+    if(dir==='LONG'){
+      // Swept below prior low then recovered
+      if(l[i]<priorLow&&c[i]>priorLow)return true;
+    } else {
+      // Swept above prior high then dropped
+      if(h[i]>priorHigh&&c[i]<priorHigh)return true;
+    }
+  }
+  return false;
+}
+
 function findBestSR(h,l,c,dir,atrVal,lookback){
   lookback=lookback||50;
   const price=c[c.length-1];
@@ -686,12 +707,14 @@ function renderLog(){
   b.innerHTML=logs.map(e=>'<div class="lrow"><span class="lt">'+e.time+'</span><span class="li">'+e.instr+'</span><span class="ld '+e.dir+'">'+(e.dir==='forming'?'FORMING':e.dir==='active'?'ACTIVE ▲':'ACTIVE ▼')+'</span><span class="ldet">'+e.detail+'</span></div>').join('');
 }
 
-function renderActive(instr,price,dir,srResult,conf,h1,d1,h4){
+function renderActive(instr,price,dir,srResult,conf,h1,d1,h4,isScalp){
   const cap=parseFloat(document.getElementById('capital').value)||10000;
   const risk=(cap*0.02).toFixed(0),reward=(cap*0.04).toFixed(0);
   const isL=dir==='LONG';
   const atr=h1.atrVal||instr.sl;
   const buf=instr.srBuffer||0;
+  const activeLot=isScalp?(instr.scalpLot||0.03):instr.lot;
+  const signalLabel=isScalp?'SCALP ⚡':'Sygnał A';
   let ep,sl,tp1,tp2,srHtml='',pathHtml='';
 
   if(srResult&&srResult.quality>=55){
@@ -728,13 +751,13 @@ function renderActive(instr,price,dir,srResult,conf,h1,d1,h4){
     '<div class="score-row">'+
     '<div class="score-bar-wrap"><div class="score-bar-fill" style="width:'+conf.score+'%;background:'+scoreColor+'"></div></div>'+
     '<span class="score-val" style="color:'+scoreColor+'">'+conf.score+'</span>'+
-    '<span class="score-state state-active">ACTIVE</span>'+
+    '<span class="score-state state-active">'+(isScalp?'SCALP ⚡':'ACTIVE A')+'</span>'+
     '</div>'+
     '<div class="tf-row">'+
     '<div class="tf-cell"><div class="tf-label">D1</div><div class="tf-val '+tfColor(d1.trend)+'">'+d1.trend+'</div></div>'+
     '<div class="tf-cell"><div class="tf-label">H4</div><div class="tf-val '+tfColor(h4.trend)+'">'+h4.trend+'</div></div>'+
     '<div class="tf-cell"><div class="tf-label">H1</div><div class="tf-val '+(isL?'tf-up':'tf-down')+'">'+(isL?'LONG':'SHORT')+'</div></div>'+
-    '<div class="tf-cell"><div class="tf-label">Lot</div><div class="tf-val">'+instr.lot+'</div></div>'+
+    '<div class="tf-cell"><div class="tf-label">Lot</div><div class="tf-val" style="color:'+(isScalp?'var(--amber)':'var(--green)')+'">'+activeLot+'</div></div>'+
     '</div>'+
     '<div class="trade-grid">'+
     '<div class="tc"><div class="tc-l">Entry ('+entryType+')</div><div class="tc-v '+(isL?'long':'short')+'">'+ep+'</div></div>'+
@@ -761,7 +784,7 @@ function renderActive(instr,price,dir,srResult,conf,h1,d1,h4){
     '</div>'+
     '<div class="imeta"><div class="mi">ryzyko: <span>'+risk+' PLN</span></div><div class="mi">cel max: <span>+'+reward+' PLN</span></div><div class="mi">Score: <span style="color:'+scoreColor+'">'+conf.score+'/100</span></div></div>';
 
-  const tgMsg='⚡ <b>'+(isL?'LONG':'SHORT')+' '+instr.name+'</b> [Score: '+conf.score+']\n'+
+  const tgMsg='⚡ <b>'+(isScalp?'SCALP ⚡':'SYGNAŁ A')+' '+(isL?'LONG':'SHORT')+' '+instr.name+'</b> [Score: '+conf.score+']\n'+
     'Entry ('+entryType+'): <b>'+ep+'</b>\nSL: <b>'+sl+'</b>\n'+
     'TP1 (50%): <b>'+tp1+'</b> → przesuń SL na entry\n'+
     'TP2 (50%): <b>'+tp2+'</b>\n'+
@@ -903,18 +926,37 @@ async function scan(){
       });
 
       if(h1.dir==='LONG'||h1.dir==='SHORT'){
-        if(conf.state==='ACTIVE'){
-          actives++;
+        if(conf.state==='ACTIVE'||conf.score>=85){
           const isL=h1.dir==='LONG';
-          setBadge(instr.key,isL?'b-active-long':'b-active-short',isL?'LONG ▲':'SHORT ▼');
-          setCard(instr.key,'sig-active'+(isL?'':' short'));
-          renderActive(instr,price,h1.dir,srResult,conf,h1,d1,h4);
-        } else {
-          forming++;
-          setBadge(instr.key,'b-forming','FORMING '+conf.score);
-          setCard(instr.key,'sig-forming');
-          renderForming(instr,price,h1,conf,d1,h4);
-        }
+          const atr=h1.atrVal||instr.sl;
+          // Determine entry/tp for RR calculation
+          const ep=srResult&&srResult.quality>=55?(isL?srResult.level-(instr.srBuffer*atr):srResult.level+(instr.srBuffer*atr)):price;
+          const sl=isL?ep-atr*instr.atrSlMult:ep+atr*instr.atrSlMult;
+          const tp2=isL?ep+atr*instr.atrTpMult:ep-atr*instr.atrTpMult;
+          const rr=Math.abs(tp2-ep)/Math.max(0.00001,Math.abs(sl-ep));
+
+          // Signal A: high confidence + RR >= 1.9
+          const isSignalA=conf.score>=78&&rr>=1.9;
+
+          // Signal B: very high confidence + recent liq sweep + calm ATR + RR >= 1.2
+          const recentSweep=detectRecentLiqSweep(h1.highs||highs.slice(0,-1),h1.lows||lows.slice(0,-1),h1.closes||closes.slice(0,-1),h1.dir,3);
+          const calmATR=atr<=(instr.scalpAtrMax||20);
+          const isSignalB=conf.score>=85&&recentSweep&&calmATR&&rr>=1.2&&!isSignalA;
+
+          if(isSignalA||isSignalB){
+            actives++;
+            const badgeCls=isSignalB?'b-forming':(isL?'b-active-long':'b-active-short');
+            const badgeTxt=isSignalB?(isL?'SCALP ⚡ LONG':'SCALP ⚡ SHORT'):(isL?'LONG ▲':'SHORT ▼');
+            setBadge(instr.key,badgeCls,badgeTxt);
+            setCard(instr.key,'sig-active'+(isL?'':' short'));
+            renderActive(instr,price,h1.dir,srResult,conf,h1,d1,h4,isSignalB);
+          } else {
+            forming++;
+            setBadge(instr.key,'b-forming','FORMING '+conf.score);
+            setCard(instr.key,'sig-forming');
+            renderForming(instr,price,h1,conf,d1,h4);
+          }
+        } // end conf.state check
       } else if(h1.dir==='FORMING'){
         forming++;
         setBadge(instr.key,'b-forming','forming...');
