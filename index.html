@@ -151,6 +151,40 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .ldet{color:var(--muted2);font-size:11px}
 .spinner{display:inline-block;width:10px;height:10px;border:1.5px solid rgba(255,255,255,0.1);border-top-color:var(--amber);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+/* ─── SYSTEM O — NY OPEN ─────────────────────────────────────── */
+.orb-section{display:none;margin-bottom:1.5rem}
+.orb-section.visible{display:block}
+.orb-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:1rem 1.25rem;margin-bottom:.5rem}
+.orb-card.prep{border-color:rgba(59,130,246,0.3);background:rgba(59,130,246,0.04)}
+.orb-card.range{border-color:var(--ab);background:var(--abg)}
+.orb-card.signal-long{border-color:var(--gb);background:var(--gbg)}
+.orb-card.signal-short{border-color:var(--rb);background:var(--rbg)}
+.orb-card.invalid{border-color:var(--muted);background:rgba(255,255,255,0.02);opacity:.6}
+.orb-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem}
+.orb-title{font-size:13px;font-weight:600}
+.orb-badge{font-size:11px;font-weight:600;padding:2px 10px;border-radius:20px}
+.orb-badge.prep{background:rgba(59,130,246,0.12);color:var(--blue);border:1px solid rgba(59,130,246,0.3)}
+.orb-badge.wait{background:var(--abg);color:var(--amber);border:1px solid var(--ab)}
+.orb-badge.long{background:var(--gbg);color:var(--green);border:1px solid var(--gb)}
+.orb-badge.short{background:var(--rbg);color:var(--red);border:1px solid var(--rb)}
+.orb-badge.invalid{background:var(--bg3);color:var(--muted);border:1px solid var(--border)}
+.orb-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:.6rem}
+.orb-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:.6rem}
+.orb-cell{background:rgba(255,255,255,0.04);border-radius:var(--rs);padding:8px 10px}
+.orb-lbl{font-size:10px;color:var(--muted);margin-bottom:3px;text-transform:uppercase}
+.orb-val{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+.orb-val.up{color:var(--green)}.orb-val.down{color:var(--red)}.orb-val.neu{color:var(--amber)}
+.orb-levels{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:.6rem}
+.orb-timer{font-size:12px;color:var(--amber);padding:6px 10px;background:rgba(245,158,11,0.06);border:1px solid var(--ab);border-radius:var(--rs);text-align:center;margin-bottom:.6rem}
+.orb-timer.danger{color:var(--red);background:rgba(239,68,68,0.06);border-color:var(--rb)}
+.orb-info{font-size:12px;color:var(--muted2);line-height:1.7;padding:8px 12px;background:rgba(255,255,255,0.04);border-radius:var(--rs)}
+.orb-htf{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:.6rem}
+.orb-tag{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:500}
+.orb-tag.ok{background:var(--gbg);color:var(--green);border:1px solid var(--gb)}
+.orb-tag.warn{background:var(--abg);color:var(--amber);border:1px solid var(--ab)}
+.orb-tag.bad{background:var(--rbg);color:var(--red);border:1px solid var(--rb)}
+.orb-tag.neu{background:var(--bg3);color:var(--muted2);border:1px solid var(--border)}
 .disc{font-size:11px;color:var(--muted);text-align:center;margin-top:2rem;line-height:1.6;opacity:.5}
 </style>
 </head>
@@ -192,6 +226,35 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   <div class="icard" id="card-us500"><div class="itop"><span class="iname">US500</span><div class="iright"><span class="ichange" id="chg-us500"></span><span class="iprice" id="price-us500">—</span><span class="badge b-wait" id="badge-us500">oczekiwanie</span></div></div><div class="ibody" id="body-us500"></div></div>
   <div class="icard" id="card-gold"><div class="itop"><span class="iname">GOLD</span><div class="iright"><span class="ichange" id="chg-gold"></span><span class="iprice" id="price-gold">—</span><span class="badge b-wait" id="badge-gold">oczekiwanie</span></div></div><div class="ibody" id="body-gold"></div></div>
   <div class="icard" id="card-eurusd"><div class="itop"><span class="iname">EUR/USD</span><div class="iright"><span class="ichange" id="chg-eurusd"></span><span class="iprice" id="price-eurusd">—</span><span class="badge b-wait" id="badge-eurusd">oczekiwanie</span></div></div><div class="ibody" id="body-eurusd"></div></div>
+</div>
+<div class="slabel" id="orb-label" style="display:none">system o — ny open</div>
+<div class="orb-section" id="orb-section">
+  <div class="orb-card prep" id="orb-prep" style="display:none">
+    <div class="orb-header">
+      <span class="orb-title">⏰ NY Open — Przygotowanie</span>
+      <span class="orb-badge prep" id="orb-prep-badge">15:20</span>
+    </div>
+    <div class="orb-grid-3" id="orb-prep-grid"></div>
+    <div class="orb-htf" id="orb-htf"></div>
+    <div class="orb-info" id="orb-prep-info">Czekaj na zamknięcie Opening Range o 15:45</div>
+  </div>
+  <div class="orb-card range" id="orb-range" style="display:none">
+    <div class="orb-header">
+      <span class="orb-title">📐 Opening Range (15:30–15:45)</span>
+      <span class="orb-badge wait" id="orb-range-badge">CZEKAM</span>
+    </div>
+    <div class="orb-grid" id="orb-range-grid"></div>
+    <div class="orb-info" id="orb-range-info"></div>
+  </div>
+  <div class="orb-card" id="orb-signal" style="display:none">
+    <div class="orb-header">
+      <span class="orb-title" id="orb-signal-title">🚀 Sygnał</span>
+      <span class="orb-badge" id="orb-signal-badge">—</span>
+    </div>
+    <div class="orb-levels" id="orb-signal-levels"></div>
+    <div class="orb-timer" id="orb-timer">⏱ Time stop: 30:00</div>
+    <div class="orb-info" id="orb-signal-info"></div>
+  </div>
 </div>
 <div class="slabel">dziennik tradów</div>
 <div class="journal">
@@ -1128,6 +1191,299 @@ function renderJournal(){
     '</div></div>'
   ).join('');
 }
+
+
+// ─── SYSTEM O — NY OPEN BREAKOUT ─────────────────────────────
+let orbState = {
+  phase: 'idle',    // idle | prep | range | signal | invalid | closed
+  orHigh: null, orLow: null, rangeSize: null,
+  atrM5: null, gap: null, bias: null, htfOk: null,
+  entry: null, sl: null, tp1: null, tp2: null, dir: null,
+  r: null, entryTime: null, beActive: false,
+  tp1Hit: false, invalidated: false
+};
+
+function orbWaw() {
+  const t = waw();
+  return t;
+}
+
+function orbIsWindow(t) {
+  // Aktywny 15:20–16:30 Warsaw (pn-pt)
+  return t.total >= 920 && t.total <= 990 && t.active;
+}
+
+async function fetchM5Yahoo() {
+  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=5m&range=1d';
+  const proxies = [
+    {p:'https://corsproxy.io/?url=', fn:d=>d},
+    {p:'https://api.allorigins.win/get?url=', fn:d=>d.contents?JSON.parse(d.contents):d}
+  ];
+  for(const{p,fn}of proxies){
+    try{
+      const r=await fetch(p+encodeURIComponent(url),{signal:AbortSignal.timeout(8000)});
+      const d=fn(await r.json());
+      const res=d.chart.result[0];
+      const times=res.timestamp;
+      const q=res.indicators.quote[0];
+      const closes=q.close, highs=q.high, lows=q.low, opens=q.open;
+      return{times,closes,highs,lows,opens,price:res.meta.regularMarketPrice};
+    }catch(e){console.warn('M5 proxy failed:',p);}
+  }
+  throw new Error('M5 fetch failed');
+}
+
+function calcBias(d1trend, h4trend) {
+  if(d1trend==='UP'&&h4trend==='UP') return {label:'A — Bycze ▲', cls:'ok'};
+  if(d1trend==='DOWN'&&h4trend==='DOWN') return {label:'B — Niedźwiedzie ▼', cls:'bad'};
+  return {label:'C — Neutralny ↔', cls:'warn'};
+}
+
+function orbQuality(closes, highs, lows) {
+  // Jakość range: clean = mało wicków, spójne zamknięcia
+  if(!closes||closes.length<3) return 'messy';
+  const rangeSize = Math.max(...highs) - Math.min(...lows);
+  const avgBody = closes.map((c,i)=>Math.abs(c-(closes[i-1]||c))).slice(1).reduce((a,b)=>a+b,0)/closes.length;
+  return avgBody/rangeSize > 0.4 ? 'clean' : 'messy';
+}
+
+function fmt1(v) { return v!==null&&v!==undefined?v.toFixed(1):'—'; }
+
+async function runORB() {
+  const t = orbWaw();
+  if(!orbIsWindow(t)) {
+    // Reset o północy / poza oknem
+    if(orbState.phase !== 'idle') {
+      orbState = {phase:'idle',orHigh:null,orLow:null,rangeSize:null,atrM5:null,gap:null,bias:null,htfOk:null,entry:null,sl:null,tp1:null,tp2:null,dir:null,r:null,entryTime:null,beActive:false,tp1Hit:false,invalidated:false};
+    }
+    document.getElementById('orb-section').classList.remove('visible');
+    document.getElementById('orb-label').style.display='none';
+    return;
+  }
+
+  document.getElementById('orb-section').classList.add('visible');
+  document.getElementById('orb-label').style.display='block';
+
+  try {
+    const m5 = await fetchM5Yahoo();
+    const now = new Date();
+    const wOffset = t.offset;
+
+    // Filtruj świece z sesji Warsaw 15:30–15:45 (OR window)
+    const orStart = 15*60+30; // 15:30 w minutach
+    const orEnd   = 15*60+45; // 15:45
+
+    // Wszystkie świece z dziś
+    const todayCandles = [];
+    (m5.times||[]).forEach((ts,i)=>{
+      const d = new Date(ts*1000);
+      const wH = (d.getUTCHours()+wOffset)%24;
+      const wM = d.getUTCMinutes();
+      const wMin = wH*60+wM;
+      if(m5.closes[i]!==null) todayCandles.push({wMin,c:m5.closes[i],h:m5.highs[i],l:m5.lows[i],o:m5.opens[i]});
+    });
+
+    // Gap — yesterday close vs today open
+    const firstCandle = todayCandles[0];
+    const prevClose = m5.closes.filter(v=>v!=null).slice(-50)[0] || m5.price;
+    const gapPct = firstCandle ? ((firstCandle.o - prevClose)/prevClose*100) : 0;
+
+    // ATR M5 — ostatnie 14 świec
+    const recentC = todayCandles.slice(-15).map(c=>c.c);
+    const recentH = todayCandles.slice(-15).map(c=>c.h);
+    const recentL = todayCandles.slice(-15).map(c=>c.l);
+    let atrM5 = 0;
+    if(recentC.length>=2){
+      const trs=[];
+      for(let i=1;i<recentC.length;i++) trs.push(Math.max(recentH[i]-recentL[i],Math.abs(recentH[i]-recentC[i-1]),Math.abs(recentL[i]-recentC[i-1])));
+      atrM5 = trs.reduce((a,b)=>a+b,0)/trs.length;
+    }
+    orbState.atrM5 = atrM5;
+    orbState.gap = gapPct;
+
+    // HTF bias z mktCtx
+    const d1t = mktCtx.session && mktCtx.session.d1trend || 'NEUTRAL';
+    const h4t = mktCtx.session && mktCtx.session.h4trend || 'NEUTRAL';
+    const bias = calcBias('NEUTRAL','NEUTRAL'); // uproszczenie — bez pełnego D1/H4 fetch
+
+    // OR candles (15:30–15:45)
+    const orCandles = todayCandles.filter(c=>c.wMin>=orStart&&c.wMin<orEnd);
+
+    // PHASE: PREP (15:20–15:30)
+    if(t.total >= 920 && t.total < 930) {
+      orbState.phase = 'prep';
+      document.getElementById('orb-prep').style.display='block';
+      document.getElementById('orb-range').style.display='none';
+      document.getElementById('orb-signal').style.display='none';
+
+      document.getElementById('orb-prep-grid').innerHTML=
+        '<div class="orb-cell"><div class="orb-lbl">Gap</div><div class="orb-val '+(gapPct>=0?'up':'down')+'">'+gapPct.toFixed(2)+'%</div></div>'+
+        '<div class="orb-cell"><div class="orb-lbl">ATR M5</div><div class="orb-val neu">'+atrM5.toFixed(1)+'</div></div>'+
+        '<div class="orb-cell"><div class="orb-lbl">VIX</div><div class="orb-val '+(mktCtx.vix&&mktCtx.vix<25?'up':'down')+'">'+(mktCtx.vix?mktCtx.vix.toFixed(1):'—')+'</div></div>';
+
+      document.getElementById('orb-htf').innerHTML=
+        '<span class="orb-tag '+bias.cls+'">'+bias.label+'</span>'+
+        '<span class="orb-tag '+(mktCtx.vix&&mktCtx.vix<25?'ok':'warn')+'">VIX '+(mktCtx.vix?mktCtx.vix.toFixed(1):'—')+'</span>'+
+        '<span class="orb-tag neu">HTF: czeka</span>';
+
+      document.getElementById('orb-prep-info').textContent='Opening Range za '+(930-t.total)+' min. Czekaj na 15:30.';
+    }
+
+    // PHASE: OR BUILDING (15:30–15:45)
+    else if(t.total >= 930 && t.total < 945) {
+      orbState.phase = 'range';
+      document.getElementById('orb-prep').style.display='block';
+      document.getElementById('orb-range').style.display='block';
+      document.getElementById('orb-signal').style.display='none';
+
+      if(orCandles.length>0){
+        const orH = Math.max(...orCandles.map(c=>c.h));
+        const orL = Math.min(...orCandles.map(c=>c.l));
+        const rsz = orH-orL;
+        const quality = orbQuality(orCandles.map(c=>c.c),orCandles.map(c=>c.h),orCandles.map(c=>c.l));
+        orbState.orHigh=orH; orbState.orLow=orL; orbState.rangeSize=rsz;
+
+        document.getElementById('orb-range-grid').innerHTML=
+          '<div class="orb-cell"><div class="orb-lbl">OR High</div><div class="orb-val up">'+orH.toFixed(1)+'</div></div>'+
+          '<div class="orb-cell"><div class="orb-lbl">OR Low</div><div class="orb-val down">'+orL.toFixed(1)+'</div></div>'+
+          '<div class="orb-cell"><div class="orb-lbl">Range</div><div class="orb-val neu">'+rsz.toFixed(1)+' pkt</div></div>'+
+          '<div class="orb-cell"><div class="orb-lbl">Jakość</div><div class="orb-val '+(quality==='clean'?'up':'down')+'">'+quality.toUpperCase()+'</div></div>';
+
+        const tooWide = atrM5>0 && rsz > atrM5*15;
+        document.getElementById('orb-range-info').textContent=
+          (tooWide?'⚠️ Range zbyt szeroki — pomijamy setup. ':'✅ Range OK. ')+
+          'Czekam na wybicie po 15:45.';
+        document.getElementById('orb-range-badge').textContent='BUDOWANIE';
+      }
+    }
+
+    // PHASE: SIGNAL CHECK (15:45–16:30)
+    else if(t.total >= 945 && t.total <= 990) {
+      document.getElementById('orb-prep').style.display='block';
+      document.getElementById('orb-range').style.display='block';
+      document.getElementById('orb-signal').style.display='block';
+
+      if(orbState.invalidated){
+        document.getElementById('orb-signal').className='orb-card invalid';
+        document.getElementById('orb-signal-badge').className='orb-badge invalid';
+        document.getElementById('orb-signal-badge').textContent='INVALID';
+        document.getElementById('orb-signal-title').textContent='❌ Setup wygasł';
+        document.getElementById('orb-timer').style.display='none';
+        return;
+      }
+
+      const price = m5.price;
+      const orH = orbState.orHigh, orL = orbState.orLow;
+      if(!orH||!orL) return;
+
+      const buf = atrM5*0.15;
+      const rsz = orH-orL;
+      const midRange = orL + rsz*0.5;
+
+      // Sprawdź ostatnią zamkniętą świecę M15
+      const m15Candles = todayCandles.filter(c=>c.wMin>=930);
+      const lastM15 = m15Candles.length>0?m15Candles[m15Candles.length-1]:null;
+
+      // Wejście — jeśli nie mamy jeszcze sygnału
+      if(!orbState.entry && lastM15){
+        if(lastM15.c > orH+buf){
+          // LONG breakout
+          orbState.dir='LONG';
+          orbState.entry=parseFloat((orH+buf).toFixed(1));
+          orbState.sl=parseFloat(orL.toFixed(1));
+          orbState.r=orbState.entry-orbState.sl;
+          orbState.tp1=parseFloat((orbState.entry+orbState.r*0.75).toFixed(1));
+          orbState.tp2=parseFloat((orbState.entry+orbState.r*1.5).toFixed(1));
+          orbState.entryTime=t.total;
+          orbState.phase='signal';
+        } else if(lastM15.c < orL-buf){
+          // SHORT breakout
+          orbState.dir='SHORT';
+          orbState.entry=parseFloat((orL-buf).toFixed(1));
+          orbState.sl=parseFloat(orH.toFixed(1));
+          orbState.r=orbState.sl-orbState.entry;
+          orbState.tp1=parseFloat((orbState.entry-orbState.r*0.75).toFixed(1));
+          orbState.tp2=parseFloat((orbState.entry-orbState.r*1.5).toFixed(1));
+          orbState.entryTime=t.total;
+          orbState.phase='signal';
+        }
+      }
+
+      // Invalidacja — cena wróciła >50% range (na zamknięciu świecy)
+      if(orbState.entry&&lastM15){
+        const isL=orbState.dir==='LONG';
+        if(isL&&lastM15.c<midRange) orbState.invalidated=true;
+        if(!isL&&lastM15.c>midRange) orbState.invalidated=true;
+      }
+
+      // Time stop — 30 min bez +0.5R
+      if(orbState.entry&&orbState.entryTime){
+        const elapsed=t.total-orbState.entryTime;
+        const isL=orbState.dir==='LONG';
+        const halfR=orbState.r*0.5;
+        const reached05R=isL?(price>=orbState.entry+halfR):(price<=orbState.entry-halfR);
+        if(elapsed>=30&&!reached05R&&!orbState.tp1Hit){
+          orbState.invalidated=true;
+        }
+        // Timer display
+        const remaining=Math.max(0,30-elapsed);
+        const timerEl=document.getElementById('orb-timer');
+        timerEl.textContent='⏱ Time stop: '+String(Math.floor(remaining)).padStart(2,'0')+':00';
+        timerEl.className='orb-timer'+(remaining<=10?' danger':'');
+      }
+
+      // Render sygnału
+      if(orbState.entry){
+        const isL=orbState.dir==='LONG';
+        const signalCard=document.getElementById('orb-signal');
+        signalCard.className='orb-card signal-'+(isL?'long':'short');
+        document.getElementById('orb-signal-title').textContent=(isL?'🚀 LONG BREAKOUT':'🔻 SHORT BREAKOUT')+' US500';
+        const badge=document.getElementById('orb-signal-badge');
+        badge.className='orb-badge '+(isL?'long':'short');
+        badge.textContent=isL?'LONG ▲':'SHORT ▼';
+
+        document.getElementById('orb-signal-levels').innerHTML=
+          '<div class="orb-cell"><div class="orb-lbl">Entry</div><div class="orb-val '+(isL?'up':'down')+'">'+orbState.entry+'</div></div>'+
+          '<div class="orb-cell"><div class="orb-lbl">Stop Loss</div><div class="orb-val down">'+orbState.sl+'</div></div>'+
+          '<div class="orb-cell"><div class="orb-lbl">R:R</div><div class="orb-val neu">1:1.5</div></div>'+
+          '<div class="orb-cell"><div class="orb-lbl">TP1 (50%) 0.75R</div><div class="orb-val up">'+orbState.tp1+'</div></div>'+
+          '<div class="orb-cell"><div class="orb-lbl">TP2 (50%) 1.5R</div><div class="orb-val up">'+orbState.tp2+'</div></div>'+
+          '<div class="orb-cell"><div class="orb-lbl">Cena</div><div class="orb-val">'+price.toFixed(1)+'</div></div>';
+
+        // BE check
+        const halfR=orbState.r*0.5;
+        const isL2=isL;
+        const reached05R=isL2?(price>=orbState.entry+halfR):(price<=orbState.entry-halfR);
+        const tp1Hit=isL2?(price>=orbState.tp1):(price<=orbState.tp1);
+        if(tp1Hit&&!orbState.tp1Hit){orbState.tp1Hit=true;orbState.beActive=true;}
+
+        document.getElementById('orb-signal-info').innerHTML=
+          (orbState.beActive?'🔒 BE aktywny — SL na entry '+orbState.entry+'<br>':'')+
+          (tp1Hit?'✅ TP1 osiągnięty — zamknij 50%<br>':'')+
+          'Range: '+rsz.toFixed(1)+' pkt · Bufor: '+buf.toFixed(1)+' · '+(orbState.beActive||tp1Hit?'Runner do TP2':'Czekaj na ruch');
+      } else {
+        // Brak sygnału jeszcze
+        document.getElementById('orb-signal').className='orb-card range';
+        document.getElementById('orb-signal-badge').className='orb-badge wait';
+        document.getElementById('orb-signal-badge').textContent='CZEKAM NA WYBICIE';
+        document.getElementById('orb-signal-title').textContent='📐 Waiting for breakout...';
+        document.getElementById('orb-signal-levels').innerHTML=
+          '<div class="orb-cell"><div class="orb-lbl">Long powyżej</div><div class="orb-val up">'+(orH+buf).toFixed(1)+'</div></div>'+
+          '<div class="orb-cell"><div class="orb-lbl">Short poniżej</div><div class="orb-val down">'+(orL-buf).toFixed(1)+'</div></div>'+
+          '<div class="orb-cell"><div class="orb-lbl">Cena</div><div class="orb-val">'+price.toFixed(1)+'</div></div>';
+        document.getElementById('orb-signal-info').textContent='Czekam na zamkniętą świecę M15 poza rangem + bufor '+buf.toFixed(1)+' pkt';
+        document.getElementById('orb-timer').style.display='none';
+      }
+    }
+  } catch(e) {
+    console.warn('ORB error:', e.message);
+  }
+}
+
+// Uruchamiaj System O co 60s gdy w oknie czasowym
+setInterval(()=>{const t=waw();if(orbIsWindow(t))runORB();}, 60000);
+// Sprawdź od razu przy ładowaniu
+setTimeout(runORB, 2000);
 
 // ─── INIT ─────────────────────────────────────────────────────
 loadCalendar();loadDXY();loadVIX();loadCOT();renderJournal();
