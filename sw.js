@@ -1,47 +1,69 @@
-sw
-const CACHE = 'trading-monitor-v1';
-const ASSETS = ['/', 'index.html'];
+const CACHE = "trading-monitor-v2";
+const ASSETS = [
+  "./",
+  "./index.html",
+  "./manifest.json",
+  "./icon.svg"
+];
 
-self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS))
-  );
-  self.skipWaiting();
-});
-
-self.addEventListener('activate', e => {
-  e.waitUntil(clients.claim());
-});
-
-self.addEventListener('fetch', e => {
-  e.respondWith(
-    caches.match(e.request).then(r => r || fetch(e.request))
+self.addEventListener("install", event => {
+  event.waitUntil(
+    caches.open(CACHE)
+      .then(cache => cache.addAll(ASSETS))
+      .then(() => self.skipWaiting())
   );
 });
 
-self.addEventListener('message', e => {
-  if (e.data && e.data.type === 'NOTIFY') {
-    const { title, body, tag, urgent } = e.data;
-    self.registration.showNotification(title, {
-      body,
-      tag: 'signal',
-      icon: 'icon.png',
-      badge: 'icon.png',
+self.addEventListener("activate", event => {
+  event.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(
+        keys
+          .filter(key => key !== CACHE)
+          .map(key => caches.delete(key))
+      ))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("fetch", event => {
+  if (event.request.method !== "GET") return;
+
+  event.respondWith(
+    caches.match(event.request).then(cached => {
+      if (cached) return cached;
+      return fetch(event.request);
+    })
+  );
+});
+
+self.addEventListener("message", event => {
+  if (!event.data || event.data.type !== "NOTIFY") return;
+
+  const { title, body, tag, urgent } = event.data;
+
+  event.waitUntil(
+    self.registration.showNotification(title || "Trading Monitor", {
+      body: body || "",
+      tag: tag || "signal",
+      icon: "./icon.svg",
+      badge: "./icon.svg",
       vibrate: urgent ? [200, 100, 200, 100, 200] : [200],
-      requireInteraction: urgent || false,
-      actions: urgent ? [{ action: 'open', title: 'Otwórz XTB' }] : []
-    });
-  }
+      requireInteraction: !!urgent,
+      actions: urgent ? [{ action: "open", title: "Otwórz XTB" }] : []
+    })
+  );
 });
 
-self.addEventListener('notificationclick', e => {
-  e.notification.close();
-  if (e.action === 'open') {
-    clients.openWindow('https://xstation5.xtb.com');
-  } else {
-    clients.matchAll({ type: 'window' }).then(cs => {
-      if (cs.length) cs[0].focus();
-      else clients.openWindow('/');
-    });
-  }
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+
+  event.waitUntil(
+    event.action === "open"
+      ? clients.openWindow("https://xstation5.xtb.com/")
+      : clients.matchAll({ type: "window", includeUncontrolled: true }).then(clientList => {
+          if (clientList.length) return clientList[0].focus();
+          return clients.openWindow("./");
+        })
+  );
 });
