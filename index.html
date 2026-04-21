@@ -548,16 +548,28 @@ async function fetchYahoo(sym){
 }
 async function fetchTD(sym,interval,outputsize){
   interval=interval||'1h';outputsize=outputsize||100;
-  const url='https://api.twelvedata.com/time_series?symbol='+encodeURIComponent(sym)+'&interval='+interval+'&outputsize='+outputsize+'&apikey='+TD_KEY;
-  const r=await fetch(url,{signal:AbortSignal.timeout(10000)});
-  const d=await r.json();
-  if(d.status==='error')throw new Error(d.message);
-  if(!d.values||d.values.length<2)throw new Error('brak danych TD');
-  const values=d.values;
-  const closes=values.map(v=>parseFloat(v.close)).reverse();
-  const highs=values.map(v=>parseFloat(v.high)).reverse();
-  const lows=values.map(v=>parseFloat(v.low)).reverse();
-  return{closes,highs,lows,price:parseFloat(values[0].close),prev:parseFloat(values[1].close)};
+  const tdUrl='https://api.twelvedata.com/time_series?symbol='+encodeURIComponent(sym)+'&interval='+interval+'&outputsize='+outputsize+'&apikey='+TD_KEY;
+  // TD blokuje bezposrednie requesty z przegladarki (CORS) — uzywamy proxy
+  const proxies=[
+    {p:'https://corsproxy.io/?url=',         fn:d=>d},
+    {p:'https://api.allorigins.win/get?url=', fn:d=>d.contents?JSON.parse(d.contents):d},
+    {p:'https://corsproxy.org/?',             fn:d=>d}
+  ];
+  let lastErr='brak proxy';
+  for(const{p,fn}of proxies){
+    try{
+      const r=await fetch(p+encodeURIComponent(tdUrl),{signal:AbortSignal.timeout(10000)});
+      const d=fn(await r.json());
+      if(d.status==='error')throw new Error(d.message);
+      if(!d.values||d.values.length<2)throw new Error('brak danych TD');
+      const values=d.values;
+      const closes=values.map(v=>parseFloat(v.close)).reverse();
+      const highs=values.map(v=>parseFloat(v.high)).reverse();
+      const lows=values.map(v=>parseFloat(v.low)).reverse();
+      return{closes,highs,lows,price:parseFloat(values[0].close),prev:parseFloat(values[1].close)};
+    }catch(e){lastErr=e.message;console.warn('TD proxy failed:',p,e.message);}
+  }
+  throw new Error('TD wszystkie proxy failed: '+lastErr);
 }
 
 // ─── MARKET CONTEXT ──────────────────────────────────────────
@@ -628,8 +640,22 @@ function isEventBlockingInstr(ev,instrKey,nowMin){
 async function loadCalendar(){
   const t=waw();
   try{
-    const r=await fetch('https://corsproxy.io/?url='+encodeURIComponent('https://nfs.faireconomy.media/ff_calendar_thisweek.json'));
-    const events=await r.json();
+    const calUrl='https://nfs.faireconomy.media/ff_calendar_thisweek.json';
+    const calProxies=[
+      {p:'https://corsproxy.io/?url=',         fn:d=>d},
+      {p:'https://api.allorigins.win/get?url=', fn:d=>d.contents?JSON.parse(d.contents):d},
+      {p:'https://corsproxy.org/?',             fn:d=>d}
+    ];
+    let events=null;
+    for(const{p,fn}of calProxies){
+      try{
+        const r=await fetch(p+encodeURIComponent(calUrl),{signal:AbortSignal.timeout(6000)});
+        events=fn(await r.json());
+        if(Array.isArray(events))break;
+        events=null;
+      }catch(e){console.warn('Cal proxy failed:',p);}
+    }
+    if(!events)throw new Error('Wszystkie proxy kalendarza zawiodly');
     const todayStr=new Date().toISOString().split('T')[0];
     const todayEvs=events.filter(e=>{
       if(!e.date)return false;
