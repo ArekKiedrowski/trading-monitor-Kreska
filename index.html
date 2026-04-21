@@ -223,9 +223,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 </div>
 
 <script>
-const TD_KEY='6e1c55b191064b75be58368e856ff28b';
-const TG_TOKEN='7980338718:AAFqiQTRwT99Qqql6SFNxgDQUBdJhk9dxtM';
-const TG_CHAT='1599380596';
+const TD_KEY='__TD_KEY__';
 
 const INSTRUMENTS=[
   {key:'us500',name:'US500',  sym:'^GSPC',  src:'yahoo',sl:20,    tp:40,    dec:1,lot:0.05,rsiOB:70,rsiOS:30,atrPctMin:0.15,adxMin:22,atrSlMult:0.8, atrTpMult:2.0,srBuffer:0.0,scalpAtrMax:25,  scalpLot:0.03},
@@ -236,7 +234,7 @@ const INSTRUMENTS=[
 let running=false,nextIn=0,logs=[],newsBlocked=false,lastSignals={};
 let mktCtx={dxy:null,dxyCloses:[],dxyTrend:'neutral',vix:null,session:{}};
 
-function sendTG(msg){fetch('https://api.telegram.org/bot'+TG_TOKEN+'/sendMessage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chat_id:TG_CHAT,text:msg,parse_mode:'HTML'})}).catch(()=>{});}
+// Telegram wysyłany wyłącznie przez GitHub Actions (scan.yml) — nie z przeglądarki
 
 function waw(){
   const now=new Date(),tz='Europe/Warsaw';
@@ -698,7 +696,7 @@ function addLog(instr,dir,detail,tgMsg){
   renderLog();
   if(tgMsg&&(dir==='active'||dir==='short')){
     const sigKey=instr+dir;
-    if(lastSignals[sigKey]!==dir){lastSignals[sigKey]=dir;sendTG(tgMsg);}
+    if(lastSignals[sigKey]!==dir){lastSignals[sigKey]=dir;}
   }
 }
 function renderLog(){
