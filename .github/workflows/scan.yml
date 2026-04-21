@@ -1,31 +1,385 @@
 name: Trading Monitor Scan
 
 on:
+  schedule:
+    - cron: '*/5 6-22 * * 1-5'
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/scan.yml'
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Send test message
+      - name: Restore signal cache
+        uses: actions/cache@v4
+        with:
+          path: signal-cache.json
+          key: signals-${{ github.run_id }}
+          restore-keys: |
+            signals-
+
+      - name: Scan markets and send Telegram
+        run: |
+          node << 'SCRIPT'
+          const https = require('https');
+          const fs = require('fs');
+
+          const TD_KEY = process.env.TD_KEY;
+          const TG_TOKEN = process.env.TG_TOKEN;
+          const TG_CHAT = process.env.TG_CHAT;
+
+          const INSTRUMENTS = [
+            {key:'us500', name:'US500',   sym:'^GSPC',   src:'yahoo', sl:20,     tp:40,     dec:1, rsiOB:70, rsiOS:30, atrPctMin:0.15, adxMin:22},
+            {key:'gold',  name:'GOLD',    sym:'XAU/USD', src:'td',    sl:25,     tp:50,     dec:1, rsiOB:68, rsiOS:32, atrPctMin:0.20, adxMin:20},
+            {key:'eurusd',name:'EUR/USD', sym:'EUR/USD', src:'td',    sl:0.0015, tp:0.0030, dec:5, rsiOB:65, rsiOS:35, atrPctMin:0.10, adxMin:18}
+          ];
+
+          // ─── STATE ───────────────────────────────────────────
+          let lastSignals = {};
+          try {
+            if (fs.existsSync('signal-cache.json')) {
+              lastSignals = JSON.parse(fs.readFileSync('signal-cache.json', 'utf8'));
+              console.log('Cache:', JSON.stringify(lastSignals));
+            }
+          } catch(e) { console.log('No cache'); }
+
+          const isManual = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch';
+          if (isManual) { Object.keys(lastSignals).forEach(k => delete lastSignals[k]); console.log('Manual - cleared cache'); }
+
+          // ─── HTTP ─────────────────────────────────────────────
+          function fetchUrl(url) {
+            return new Promise((resolve, reject) => {
+              https.get(url, {headers:{'User-Agent':'Mozilla/5.0'}}, res => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => { try { resolve(JSON.parse(data)); } catch(e) { reject(new Error('parse: '+data.slice(0,80))); } });
+              }).on('error', reject);
+            });
+          }
+
+          function sendTelegram(msg) {
+            const body = JSON.stringify({chat_id: TG_CHAT, text: msg, parse_mode: 'HTML'});
+            const options = {hostname:'api.telegram.org',path:`/bot${TG_TOKEN}/sendMessage`,method:'POST',
+              headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)}};
+            return new Promise(resolve => {
+              const req = https.request(options, res => { let d=''; res.on('data',c=>d+=c); res.on('end',()=>{console.log('TG:',d.slice(0,80));resolve();}); });
+              req.on('error', e => { console.error('TG error:',e.message); resolve(); });
+              req.write(body); req.end();
+            });
+          }
+
+          // ─── NEWS BLOCK (per-instrument) ──────────────────────────
+          const NEWS_RULES = {
+            us500: {keywords:['Fed','FOMC','CPI','NFP','Nonfarm','GDP','ISM','Unemployment','Retail Sales','PPI'],countries:['USD'],impacts:['High','Medium']},
+            gold:  {keywords:['Fed','FOMC','CPI','NFP','Nonfarm','GDP','Interest Rate','Inflation','PPI'],countries:['USD'],impacts:['High']},
+            eurusd:{keywords:['Fed','FOMC','CPI','NFP','Nonfarm','GDP','ISM','ECB','Interest Rate','PMI','Inflation','Unemployment'],countries:['USD','EUR'],impacts:['High','Medium']}
+          };
+          function isEventBlockingInstr(ev, instrKey) {
+            const rule = NEWS_RULES[instrKey];
+            if (!rule||!rule.countries.includes(ev.country)) return false;
+            if (!rule.impacts.includes(ev.impact)) return false;
+            if (ev.impact === 'High') return true;
+            return rule.keywords.some(k => ev.title&&ev.title.toLowerCase().includes(k.toLowerCase()));
+          }
+          async function getNewsBlockedMap() {
+            const blocked = {us500:false,gold:false,eurusd:false};
+            try {
+              const d = await fetchUrl('https://nfs.faireconomy.media/ff_calendar_thisweek.json');
+              const now = new Date();
+              const wOffset = 2;
+              const wTime = new Date(now.getTime()+wOffset*3600000);
+              const todayStr = wTime.toISOString().split('T')[0];
+              const nowMin = wTime.getUTCHours()*60+wTime.getUTCMinutes();
+              d.forEach(e => {
+                if (!e.date) return;
+                const evDate = new Date(e.date);
+                if (evDate.toISOString().split('T')[0]!==todayStr) return;
+                const evMin = evDate.getUTCHours()*60+evDate.getUTCMinutes()+wOffset*60;
+                if (Math.abs(evMin-nowMin)>30) return;
+                ['us500','gold','eurusd'].forEach(key=>{
+                  if(isEventBlockingInstr(e,key)){blocked[key]=true;console.log(`NEWS BLOCK ${key}: ${e.title}`);}
+                });
+              });
+            } catch(e) { console.log('Calendar failed - allowing signals'); }
+            return blocked;
+          }
+
+          // ─── MATH ─────────────────────────────────────────────
+          function ema(data, period) {
+            if (data.length < period) return null;
+            const k = 2/(period+1);
+            let e = data.slice(0,period).reduce((a,b)=>a+b,0)/period;
+            for (let i=period;i<data.length;i++) e = data[i]*k+e*(1-k);
+            return e;
+          }
+
+          function rsi(closes, period=14) {
+            if (closes.length < period+1) return null;
+            let gains=0, losses=0;
+            for (let i=closes.length-period;i<closes.length;i++) {
+              const d = closes[i]-closes[i-1];
+              if (d>0) gains+=d; else losses+=Math.abs(d);
+            }
+            const ag=gains/period, al=losses/period;
+            if (al===0) return 100;
+            return 100-(100/(1+ag/al));
+          }
+
+          function atr(highs, lows, closes, period=14) {
+            if (closes.length < period+1) return null;
+            const trs = [];
+            for (let i=1;i<closes.length;i++)
+              trs.push(Math.max(highs[i]-lows[i], Math.abs(highs[i]-closes[i-1]), Math.abs(lows[i]-closes[i-1])));
+            return trs.slice(-period).reduce((a,b)=>a+b,0)/period;
+          }
+
+          function adx(highs, lows, closes, period=14) {
+            if (closes.length < period*2) return null;
+            const dms=[], dmm=[];
+            for (let i=1;i<closes.length;i++) {
+              const up=highs[i]-highs[i-1], down=lows[i-1]-lows[i];
+              dms.push(up>down&&up>0?up:0);
+              dmm.push(down>up&&down>0?down:0);
+            }
+            const trList=[];
+            for (let i=1;i<closes.length;i++)
+              trList.push(Math.max(highs[i]-lows[i], Math.abs(highs[i]-closes[i-1]), Math.abs(lows[i]-closes[i-1])));
+            let atrS=trList.slice(0,period).reduce((a,b)=>a+b,0);
+            let dmPS=dms.slice(0,period).reduce((a,b)=>a+b,0);
+            let dmMS=dmm.slice(0,period).reduce((a,b)=>a+b,0);
+            const dxList=[];
+            for (let i=period;i<trList.length;i++) {
+              atrS=atrS-atrS/period+trList[i];
+              dmPS=dmPS-dmPS/period+dms[i];
+              dmMS=dmMS-dmMS/period+dmm[i];
+              const diP=atrS>0?100*dmPS/atrS:0;
+              const diM=atrS>0?100*dmMS/atrS:0;
+              const dx=diP+diM>0?100*Math.abs(diP-diM)/(diP+diM):0;
+              dxList.push(dx);
+            }
+            if (dxList.length < period) return null;
+            return dxList.slice(-period).reduce((a,b)=>a+b,0)/period;
+          }
+
+          function roc(closes, period=10) {
+            if (closes.length < period+1) return null;
+            const cur=closes[closes.length-1], prev=closes[closes.length-1-period];
+            return prev>0?(cur-prev)/prev*100:null;
+          }
+
+          // ─── ANALYSIS ─────────────────────────────────────────
+          function analyze(closes, highs, lows, instr) {
+            // Smart offset: use n-1 candle (last CLOSED candle)
+            const c = closes.slice(0,-1);
+            const h = highs.slice(0,-1);
+            const l = lows.slice(0,-1);
+            if (c.length < 50) return {dir:'NO_SIGNAL', note:'za mało danych'};
+
+            const e20=ema(c,20), e50=ema(c,50);
+            const e20p=ema(c.slice(0,-5),20), e50p=ema(c.slice(0,-5),50);
+            const atrVal=atr(h,l,c,14);
+            const adxVal=adx(h,l,c,14);
+            const rocVal=roc(c,8);
+            const rsiVal=rsi(c,14);
+            const price=c[c.length-1];
+            const atrPct=atrVal?(atrVal/price*100):0;
+
+            const trendUp=e20>e50, trendDown=e20<e50;
+            const tsUp=trendUp?(e20-e50)>(e20p-e50p):(e50-e20)>(e50p-e20p);
+            const volOk=atrPct>=(instr.atrPctMin||0.15);
+            const trendStrong=!adxVal||(adxVal>=(instr.adxMin||20));
+            const aboveEMA=price>e20&&price>e50;
+            const belowEMA=price<e20&&price<e50;
+            const mom=rocVal!==null?rocVal:0;
+
+            // Overextension filter: price too far from EMA = avoid entry
+            const overextLong=atrVal&&(price>e20+2.5*atrVal);
+            const overextShort=atrVal&&(price<e20-2.5*atrVal);
+
+            // RSI filter
+            const rsiOverbought=rsiVal&&rsiVal>(instr.rsiOB||68);
+            const rsiOversold=rsiVal&&rsiVal<(instr.rsiOS||32);
+
+            const dec=price>100?1:price>1?5:5;
+            const fmt=v=>v?v.toFixed(dec):'?';
+            let dir='NO_SIGNAL', note='';
+
+            if(trendUp&&mom>0&&aboveEMA){
+              if(tsUp&&volOk&&trendStrong&&!overextLong&&!rsiOverbought){
+                dir='LONG';
+                note=`Trend wzrostowy. EMA20=${fmt(e20)} > EMA50=${fmt(e50)}, ADX=${adxVal?adxVal.toFixed(1):'?'}, ROC=${rocVal?rocVal.toFixed(2):'?'}%`;
+              } else {
+                dir='FORMING';
+                const reasons=[];
+                if(!tsUp) reasons.push('trend słaby');
+                if(!volOk) reasons.push('niska zmienność');
+                if(!trendStrong) reasons.push(`ADX=${adxVal?adxVal.toFixed(1):'?'} za niski`);
+                if(overextLong) reasons.push('overextension');
+                if(rsiOverbought) reasons.push(`RSI=${rsiVal?rsiVal.toFixed(1):'?'} wykupiony`);
+                note=`Trend wzrostowy, czekam: ${reasons.join(', ')}`;
+              }
+            } else if(trendDown&&mom<0&&belowEMA){
+              if(tsUp&&volOk&&trendStrong&&!overextShort&&!rsiOversold){
+                dir='SHORT';
+                note=`Trend spadkowy. EMA20=${fmt(e20)} < EMA50=${fmt(e50)}, ADX=${adxVal?adxVal.toFixed(1):'?'}, ROC=${rocVal?rocVal.toFixed(2):'?'}%`;
+              } else {
+                dir='FORMING';
+                const reasons=[];
+                if(!tsUp) reasons.push('trend słaby');
+                if(!volOk) reasons.push('niska zmienność');
+                if(!trendStrong) reasons.push(`ADX=${adxVal?adxVal.toFixed(1):'?'} za niski`);
+                if(overextShort) reasons.push('overextension');
+                if(rsiOversold) reasons.push(`RSI=${rsiVal?rsiVal.toFixed(1):'?'} wyprzedany`);
+                note=`Trend spadkowy, czekam: ${reasons.join(', ')}`;
+              }
+            } else {
+              note=`Brak trendu. EMA20=${fmt(e20)} EMA50=${fmt(e50)}`;
+            }
+
+            // Entry levels from support/resistance
+            let entryLevel=null, slLevel=null, tpLevel=null;
+            if((dir==='LONG'||dir==='SHORT')&&atrVal){
+              const isL=dir==='LONG';
+              // Find nearest support/resistance in last 15 candles
+              let level=null;
+              if(isL){
+                for(let i=c.length-2;i>=c.length-15&&i>=0;i--){
+                  if(l[i]<price&&(level===null||l[i]>level)) level=l[i];
+                }
+              } else {
+                for(let i=c.length-2;i>=c.length-15&&i>=0;i--){
+                  if(h[i]>price&&(level===null||h[i]<level)) level=h[i];
+                }
+              }
+              if(level&&Math.abs(price-level)<atrVal*2){
+                entryLevel=parseFloat(level.toFixed(dec));
+                slLevel=parseFloat((isL?level-atrVal*0.8:level+atrVal*0.8).toFixed(dec));
+                tpLevel=parseFloat((isL?level+atrVal*2:level-atrVal*2).toFixed(dec));
+              } else {
+                entryLevel=price;
+                slLevel=parseFloat((isL?price-atrVal*0.8:price+atrVal*0.8).toFixed(dec));
+                tpLevel=parseFloat((isL?price+atrVal*2:price-atrVal*2).toFixed(dec));
+              }
+            }
+
+            return {dir, note, price, entryLevel, slLevel, tpLevel, adxVal, rocVal, rsiVal, atrVal};
+          }
+
+          // D1 trend
+          function analyzeD1(closes) {
+            if (!closes||closes.length<50) return {trend:'NEUTRAL'};
+            const e20=ema(closes,20), e50=ema(closes,50);
+            const price=closes[closes.length-1];
+            if(e20>e50&&price>e50) return {trend:'UP'};
+            if(e20<e50&&price<e50) return {trend:'DOWN'};
+            return {trend:'NEUTRAL'};
+          }
+
+          // ─── DATA FETCHING ────────────────────────────────────
+          async function fetchYahoo(sym) {
+            const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1h&range=30d`;
+            const d=await fetchUrl(url);
+            const res=d.chart.result[0];
+            const closes=res.indicators.quote[0].close.filter(v=>v!=null);
+            const highs=res.indicators.quote[0].high.filter(v=>v!=null);
+            const lows=res.indicators.quote[0].low.filter(v=>v!=null);
+            return {closes, highs, lows, price: res.meta.regularMarketPrice};
+          }
+
+          async function fetchTD(sym, interval='1h', outputsize=100) {
+            // delay to avoid rate limiting
+            await new Promise(r=>setTimeout(r,600));
+            const url=`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=${interval}&outputsize=${outputsize}&apikey=${TD_KEY}`;
+            const d=await fetchUrl(url);
+            if(d.status==='error') throw new Error(d.message);
+            if(!d.values||d.values.length<2) throw new Error('brak danych');
+            const values=d.values;
+            const closes=values.map(v=>parseFloat(v.close)).reverse();
+            const highs=values.map(v=>parseFloat(v.high)).reverse();
+            const lows=values.map(v=>parseFloat(v.low)).reverse();
+            return {closes, highs, lows, price: parseFloat(values[0].close)};
+          }
+
+          // ─── MAIN ─────────────────────────────────────────────
+          async function main() {
+            // Per-instrument news block
+            const newsBlockedMap = await getNewsBlockedMap();
+
+            const messages = [];
+            const newSignals = {...lastSignals};
+
+            for (const instr of INSTRUMENTS) {
+              if (newsBlockedMap[instr.key]) {
+                console.log(`SKIP ${instr.name} - news block`);
+                continue;
+              }
+              try {
+                // H1 data
+                const data = instr.src==='yahoo' ? await fetchYahoo(instr.sym) : await fetchTD(instr.sym,'1h',100);
+                const {closes, highs, lows, price} = data;
+
+                // D1 trend
+                let d1={trend:'NEUTRAL'};
+                try {
+                  const d1data = instr.src==='td' ? await fetchTD(instr.sym,'1day',60) : null;
+                  if(d1data) d1=analyzeD1(d1data.closes);
+                } catch(e) {}
+
+                // Analyze H1 with smart offset
+                const result = analyze(closes, highs, lows, instr);
+                const {dir, note, entryLevel, slLevel, tpLevel} = result;
+
+                console.log(`${instr.name} | ${dir} | price:${price.toFixed(instr.dec)} | D1:${d1.trend} | ADX:${result.adxVal?result.adxVal.toFixed(1):'?'} | RSI:${result.rsiVal?result.rsiVal.toFixed(1):'?'}`);
+
+                const prevDir = lastSignals[instr.key];
+                const isNew = prevDir !== dir;
+                newSignals[instr.key] = dir;
+
+                if (isNew && (dir==='LONG'||dir==='SHORT')) {
+                  const ep=(entryLevel||price).toFixed(instr.dec);
+                  const sl=(slLevel||(dir==='LONG'?price-instr.sl:price+instr.sl)).toFixed(instr.dec);
+                  const tp=(tpLevel||(dir==='LONG'?price+instr.tp:price-instr.tp)).toFixed(instr.dec);
+                  const isNear=!entryLevel||Math.abs(price-entryLevel)<(result.atrVal||instr.sl)*0.5;
+                  const entryType=isNear?'RYNKOWE':'LIMIT';
+                  const d1warn=((dir==='LONG'&&d1.trend==='DOWN')||(dir==='SHORT'&&d1.trend==='UP'))?'\n⚠️ D1 trend niezgodny!':'';
+
+                  messages.push(
+                    `⚡ <b>${dir} ${instr.name}</b>\n`+
+                    `Entry (${entryType}): <b>${ep}</b>\n`+
+                    `SL: <b>${sl}</b> · TP: <b>${tp}</b> · Lot: 0.05\n`+
+                    `ADX: ${result.adxVal?result.adxVal.toFixed(1):'?'} · RSI: ${result.rsiVal?result.rsiVal.toFixed(1):'?'} · D1: ${d1.trend}`+
+                    d1warn+`\n`+note+
+                    `\n\n📌 Trailing stop: gdy zysk = TP → przesuń SL na entry`
+                  );
+                } else if (isNew && dir==='FORMING') {
+                  messages.push(`⏳ <b>FORMING ${instr.name}</b>\n${note}\nCena: ${price.toFixed(instr.dec)}`);
+                }
+              } catch(e) {
+                console.error(instr.name, e.message);
+              }
+            }
+
+            fs.writeFileSync('signal-cache.json', JSON.stringify(newSignals));
+            console.log('Cache saved:', JSON.stringify(newSignals));
+
+            if (messages.length > 0) {
+              const t = new Date().toLocaleTimeString('pl-PL',{timeZone:'Europe/Warsaw',hour:'2-digit',minute:'2-digit'});
+              await sendTelegram(`📊 <b>Trading Monitor ${t}</b>\n\n` + messages.join('\n\n─────\n\n'));
+              console.log('Wysłano', messages.length, 'sygnałów');
+            } else {
+              console.log('Brak nowych sygnałów');
+            }
+          }
+
+          main().catch(console.error);
+          SCRIPT
         env:
+          TD_KEY: ${{ secrets.TD_KEY }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT: ${{ secrets.TG_CHAT }}
-        run: |
-          if [ -z "$TG_TOKEN" ]; then
-            echo "Brak TG_TOKEN"
-            exit 1
-          fi
-          if [ -z "$TG_CHAT" ]; then
-            echo "Brak TG_CHAT"
-            exit 1
-          fi
-          curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TG_CHAT}" \
-            --data-urlencode "text=✅ Trading Monitor Scan działa"
+
+      - name: Save signal cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: signal-cache.json
+          key: signals-${{ github.run_id }}
