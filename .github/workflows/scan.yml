@@ -1,7 +1,45 @@
 name: Trading Monitor Scan
 
+workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/scan.yml'
+To znaczy: każdy commit do samego scan.yml uruchomi ten workflow. GitHub po takim pierwszym runie zacznie go normalnie pokazywać w Actions.
+
+Czyli dokładnie
+Otwórz .github/workflows/scan.yml
+
+Zmień sekcję on: na:
+
+text
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/scan.yml'
+Commit changes
+
+Poczekaj chwilę i wejdź w Actions
+
+Co powinno się stać
+Po commicie scan.yml powinien sam się uruchomić, bo dodałeś trigger push tylko dla tego pliku.
+
+Po pierwszym uruchomieniu workflow Trading Monitor Scan powinien już być widoczny normalnie na liście po lewej w Actions.
+
+Jak to zrobisz, napisz tylko:
+„poszedł run scan.yml” albo „dalej go nie ma”.
+
+Dopytania
+
+Jak uruchomić scan.yml po raz pierwszy
+
+Dlaczego Trading Monitor Scan nie widać w Actions
+
+Co zrobić żeby workflow pojawił się w zakładce Actions
+
+Sprawdź treść scan.yml z commita cc8bf94
+
+Jak skonfigurować schedule w scan.yml
 
 jobs:
   scan:
