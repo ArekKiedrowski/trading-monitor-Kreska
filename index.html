@@ -1,73 +1,22 @@
-<!DOCTYPE html>
-<html lang="pl">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#0d0f14">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Trading Monitor">
-  <link rel="manifest" href="./manifest.json">
-  <link rel="icon" href="./icon.svg" type="image/svg+xml">
-  <title>Trading Monitor</title>
-  <style>
-    :root {
-      --bg: #0d0f14;
-      --bg2: #161920;
-      --bg3: #1e2230;
-      --border: rgba(255,255,255,0.07);
-      --border2: rgba(255,255,255,0.12);
-      --text: #e2e6f0;
-      --muted: #5a6070;
-      --muted2: #8892a4;
-      --green: #10b981;
-      --gbg: rgba(16,185,129,0.08);
-      --gr: rgba(16,185,129,0.25);
-      --red: #ef4444;
-      --rbg: rgba(239,68,68,0.08);
-      --rr: rgba(239,68,68,0.25);
-      --amber: #f59e0b;
-      --abg: rgba(245,158,11,0.08);
-      --ar: rgba(245,158,11,0.25);
-      --blue: #3b82f6;
-      --purple: #8b5cf6;
-      --r: 12px;
-      --rs: 8px;
+{
+  "name": "Trading Monitor",
+  "short_name": "Trading",
+  "description": "US500 GOLD EURUSD sygnały tradingowe",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0d0f14",
+  "theme_color": "#0d0f14",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "./icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      min-height: 100vh;
-      padding: 1.25rem 1rem 4rem;
-      -webkit-font-smoothing: antialiased;
-    }
-    .wrap { max-width: 560px; margin: 0 auto; }
-    .top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; }
-    .top h1 { font-size: 17px; font-weight: 600; }
-    .top p { font-size: 12px; color: var(--muted2); margin-top: 3px; }
-    .clock { font-size: 30px; font-weight: 300; font-variant-numeric: tabular-nums; text-align: right; line-height: 1; }
-    .clock.on { color: var(--green); }
-    .day { font-size: 11px; color: var(--muted); text-align: right; margin-top: 2px; }
-    .security-banner {
-      padding: 10px 14px;
-      background: rgba(245,158,11,0.08);
-      border: 1px solid rgba(245,158,11,0.25);
-      border-radius: var(--rs);
-      margin-bottom: 1rem;
-      font-size: 12px;
-      color: var(--amber);
-      line-height: 1.5;
-    }
-    .news-block {
-      padding: 10px 14px;
-      background: rgba(239,68,68,0.08);
-      border: 1px solid rgba(239,68,68,0.25);
-      border-radius: var(--rs);
-      margin-bottom: 1rem;
-      font-size: 13px;
-      color: var(--red);
-      display: none;
-    }
-    .news-block.visible { display: block; }
-    .ctx-grid 
+  ]
+}
