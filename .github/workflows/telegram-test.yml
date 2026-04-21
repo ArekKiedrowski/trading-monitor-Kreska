@@ -1,17 +1,7 @@
-name: Telegram Test Message
-
-on:
-  workflow_dispatch:
-
-jobs:
-  notify:
-    runs-on: ubuntu-latest
-
-    steps:
       - name: Send test message to Telegram
         env:
-          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TG_BOT_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT }}
         run: |
           if [ -z "$TG_BOT_TOKEN" ]; then
             echo "Brak TG_BOT_TOKEN w secrets!"
@@ -21,6 +11,7 @@ jobs:
             echo "Brak TG_CHAT_ID w secrets!"
             exit 1
           fi
+
           TS="$(date +'%Y-%m-%d %H:%M:%S')"
           MSG="✅ Test z GitHub Actions | Czas: ${TS} | Repo: $GITHUB_REPOSITORY"
 
@@ -29,7 +20,6 @@ jobs:
             --data-urlencode "chat_id=${TG_CHAT_ID}" \
             --data-urlencode "text=${MSG}")
 
-       
           echo "HTTP_CODE=$HTTP_CODE"
           echo "RESPONSE_START"
           cat response.txt
