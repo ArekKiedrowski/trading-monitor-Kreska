@@ -501,21 +501,12 @@ jobs:
                 const vixTxt=mktCtx&&mktCtx.vix?mktCtx.vix.toFixed(1):'?';
 
                 const msg=
-                  `⏰ <b>NY OPEN za 15 min</b>
-
-`+
-                  `Weekly H: <b>${prevWH}</b> · Weekly L: <b>${prevWL}</b>
-`+
-                  `Odl. od poziomu: ${nearest.toFixed(1)} pkt ${weeklyOk?'✅':'❌ za daleko'}
-
-`+
-                  `RS: NDX ${ndxChg>=0?'+':''}${ndxChg}% · DJI ${djiChg>=0?'+':''}${djiChg}%
-`+
-                  `DXY: ${dxyTrendTxt==='up'?'↑ mocny':dxyTrendTxt==='down'?'↓ słaby':'→'} · VIX: ${vixTxt}
-
-`+
-                  (weeklyOk?`✅ Weekly OK — monitoruj OR`:`❌ Weekly daleko — rozważ skip`);
-
+                  '⏰ <b>NY OPEN za 15 min</b>\n\n'+
+                  'Weekly H: <b>'+prevWH+'</b> · Weekly L: <b>'+prevWL+'</b>\n'+
+                  'Odl.: '+nearest.toFixed(1)+' pkt '+(weeklyOk?'✅':'❌ za daleko')+'\n\n'+
+                  'RS: NDX '+(ndxChg>=0?'+':'')+ndxChg+'% · DJI '+(djiChg>=0?'+':'')+djiChg+'%\n'+
+                  'DXY: '+(dxyTrendTxt==='up'?'↑ mocny':dxyTrendTxt==='down'?'↓ słaby':'→')+' · VIX: '+vixTxt+'\n\n'+
+                  (weeklyOk?'✅ Weekly OK — monitoruj OR':'❌ Weekly daleko — rozważ skip');
                 await sendTG(msg);
                 cache.alert1515Sent=true;
                 console.log('Alert 15:15 sent');
