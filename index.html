@@ -756,86 +756,15 @@ function isEventBlockingInstr(ev,instrKey,nowMin){
 }
 
 async function loadCalendar(){
+  // Kalendarz pobierany przez GitHub Actions (scan.yml) — brak CORS w przeglądarce
+  // Alerty news block przychodzą przez Telegram
   const t=waw();
-  try{
-    const calUrl='https://nfs.faireconomy.media/ff_calendar_thisweek.json';
-    // Cache kalendarz w sessionStorage — max 30 min żeby nie hammować proxy
-    const calCacheKey='cal_cache', calCacheTime='cal_cache_t';
-    const calCached=sessionStorage.getItem(calCacheKey);
-    const calCachedT=parseInt(sessionStorage.getItem(calCacheTime)||'0');
-    let events=null;
-    if(calCached&&Date.now()-calCachedT<30*60*1000){
-      try{events=JSON.parse(calCached);}catch(e){}
-    }
-    if(!events){
-      const calProxies=[
-        {p:'https://api.allorigins.win/get?url=', fn:d=>d.contents?JSON.parse(d.contents):d},
-        {p:'https://thingproxy.freeboard.io/fetch/', fn:d=>d},
-        {p:'https://corsproxy.io/?url=',         fn:d=>d},
-        {p:'https://proxy.cors.sh/', fn:d=>d}
-      ];
-      for(const{p,fn}of calProxies){
-        try{
-          const r=await fetch(p+encodeURIComponent(calUrl),{signal:AbortSignal.timeout(6000)});
-          const raw=await r.json();
-          const parsed=fn(raw);
-          if(Array.isArray(parsed)){events=parsed;break;}
-        }catch(e){console.warn('Cal proxy failed:',p);}
-      }
-      if(events){
-        try{sessionStorage.setItem(calCacheKey,JSON.stringify(events));sessionStorage.setItem(calCacheTime,Date.now().toString());}catch(e){}
-      }
-    }
-    if(!events)throw new Error('Wszystkie proxy kalendarza zawiodly');
-    const todayStr=new Date().toISOString().split('T')[0];
-    const todayEvs=events.filter(e=>{
-      if(!e.date)return false;
-      return new Date(e.date).toISOString().split('T')[0]===todayStr&&
-        (e.impact==='High'||e.impact==='Medium')&&(e.country==='USD'||e.country==='EUR');
-    });
-    calendarEvents=todayEvs;
-    newsBlocked=false;
-    newsBlockedPerInstr={us500:false,gold:false,eurusd:false};
-
-    if(!todayEvs.length){
-      document.getElementById('cal-section').innerHTML='<div class="cal-event"><span class="cal-name" style="color:var(--green)">Brak ważnych danych dziś</span></div>';
-      document.getElementById('news-block').classList.remove('visible');return;
-    }
-
-    let html='';
-    todayEvs.forEach(ev=>{
-      const evTime=new Date(ev.date);
-      const wH=parseInt(new Intl.DateTimeFormat('pl-PL',{timeZone:'Europe/Warsaw',hour:'2-digit',hour12:false}).format(evTime));
-      const wM=parseInt(new Intl.DateTimeFormat('pl-PL',{timeZone:'Europe/Warsaw',minute:'2-digit'}).format(evTime));
-      const nowMin=t.total;
-      const evMin=wH*60+wM;
-      const diff=evMin-nowMin;
-      const inWindow=diff>=-30&&diff<=30;
-
-      // Check per-instrument blocking
-      ['us500','gold','eurusd'].forEach(key=>{
-        if(inWindow&&isEventBlockingInstr(ev,key,nowMin)){
-          newsBlockedPerInstr[key]=true;
-          newsBlocked=true;
-        }
-      });
-
-      // Build blocked instruments label
-      const blockedFor=['us500','gold','eurusd'].filter(k=>inWindow&&isEventBlockingInstr(ev,k,nowMin)).map(k=>INSTRUMENTS.find(i=>i.key===k).name).join(', ');
-      const blockLabel=blockedFor?'<span style="font-size:10px;color:var(--red);margin-left:4px">blokuje: '+blockedFor+'</span>':'';
-
-      html+='<div class="cal-event"><span class="cal-time">'+String(wH).padStart(2,'0')+':'+String(wM).padStart(2,'0')+'</span><span class="cal-name">'+ev.title+' ('+ev.country+')'+blockLabel+'</span><span class="cal-imp '+(ev.impact==='High'?'imp-high':'imp-med')+'">'+ev.impact+'</span></div>';
-    });
-
-    document.getElementById('cal-section').innerHTML=html;
-    if(newsBlocked){
-      const blocked=Object.entries(newsBlockedPerInstr).filter(([k,v])=>v).map(([k])=>INSTRUMENTS.find(i=>i.key===k).name).join(', ');
-      document.getElementById('news-block').textContent='📰 NEWS BLOCK — blokuje: '+blocked+' (±30 min od eventu)';
-      document.getElementById('news-block').classList.add('visible');
-    } else {
-      document.getElementById('news-block').classList.remove('visible');
-    }
-  }catch(e){document.getElementById('cal-section').innerHTML='<div class="lempty">Sprawdź: investing.com/economic-calendar</div>';}
+  const section=document.getElementById('cal-section');
+  section.innerHTML='<div class="cal-event"><span class="cal-name" style="color:var(--muted2)">📰 Kalendarz dostępny w alertach Telegram · High impact events blokowane automatycznie</span></div>';
+  // Disable news block UI (handled by scan.yml)
+  newsBlocked=false;
+  newsBlockedPerInstr={us500:false,gold:false,eurusd:false};
+  document.getElementById('news-block').classList.remove('visible');
 }
 
 // ─── RENDERING ───────────────────────────────────────────────
