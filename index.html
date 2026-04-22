@@ -7,6 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Trading Monitor">
 <link rel="manifest" href="manifest.json">
+<link rel="icon" href="data:,">
 <title>Trading Monitor</title>
 <style>
 :root{--bg:#0d0f14;--bg2:#161920;--bg3:#1e2230;--border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.12);--text:#e2e6f0;--muted:#5a6070;--muted2:#8892a4;--green:#10b981;--gbg:rgba(16,185,129,0.08);--gb:rgba(16,185,129,0.25);--red:#ef4444;--rbg:rgba(239,68,68,0.08);--rb:rgba(239,68,68,0.25);--amber:#f59e0b;--abg:rgba(245,158,11,0.08);--ab:rgba(245,158,11,0.25);--blue:#3b82f6;--purple:#8b5cf6;--r:12px;--rs:8px}
@@ -340,7 +341,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 // TD_KEY usuniety — GOLD i EURUSD uzywa Yahoo Finance (brak CORS)
 
 const INSTRUMENTS=[
-  {key:'us500',name:'US500',  sym:'^GSPC',  src:'yahoo',sl:20,    tp:40,    dec:1,lot:0.05,rsiOB:70,rsiOS:30,atrPctMin:0.15,adxMin:22,atrSlMult:0.8, atrTpMult:2.0,srBuffer:0.0,scalpAtrMax:25,  scalpLot:0.03},
+  {key:'us500',name:'US500',  sym:'ES=F',  src:'yahoo',sl:20,    tp:40,    dec:1,lot:0.05,rsiOB:70,rsiOS:30,atrPctMin:0.15,adxMin:22,atrSlMult:0.8, atrTpMult:2.0,srBuffer:0.0,scalpAtrMax:25,  scalpLot:0.03},
   {key:'gold', name:'GOLD',   sym:'GC=F',   src:'yahoo',sl:25,    tp:50,    dec:1,lot:0.05,rsiOB:68,rsiOS:32,atrPctMin:0.20,adxMin:20,atrSlMult:1.0, atrTpMult:2.2,srBuffer:0.3,scalpAtrMax:18,  scalpLot:0.03},
   {key:'eurusd',name:'EUR/USD',sym:'EURUSD=X',src:'yahoo',sl:0.0015,tp:0.003, dec:5,lot:0.05,rsiOB:65,rsiOS:35,atrPctMin:0.10,adxMin:18,atrSlMult:0.7, atrTpMult:1.8,srBuffer:0.0,scalpAtrMax:0.001,scalpLot:0.03}
 ];
