@@ -2,7 +2,7 @@ name: Trading Monitor Scan
 
 on:
   schedule:
-    - cron: '*/5 6-22 * * 1-5'
+    - cron: '*/5 6-22 * * 1-5'  # 8:30-00:30 Warsaw
   workflow_dispatch:
 
 jobs:
@@ -337,7 +337,7 @@ jobs:
             return{h,m,total,str,offset,
               asian:total>=120&&total<540, london:total>=540&&total<720,
               ny:total>=900&&total<1080, overlap:total>=900&&total<1020,
-              active:h>=6&&h<23, isDailySummary:total>=1310&&total<1320};
+              active:(total>=510||total<=30), isDailySummary:total>=1310&&total<1320};
           }
 
           // ─── NEWS BLOCKING ─────────────────────────────────────────
@@ -454,6 +454,76 @@ jobs:
 
             if(!session.active){console.log('Poza godzinami');return;}
 
+            // ── ALERT 15:15 — NY Open preparation ─────────────────
+            if(session.total>=915&&session.total<=920&&!cache.alert1515Sent){
+              try{
+                // Fetch weekly H/L
+                const wUrl=`https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1wk&range=1mo`;
+                const wData=await fetchUrl(wUrl);
+                const wRes=wData.chart.result[0];
+                const wQ=wRes.indicators.quote[0];
+                const wn=wQ.high.length;
+                const prevWH=(wQ.high[wn-2]||0).toFixed(1);
+                const prevWL=(wQ.low[wn-2]||9999).toFixed(1);
+                const spxPrice=wRes.meta.regularMarketPrice;
+
+                // Fetch NDX, DJI for RS
+                let ndxChg='N/A', djiChg='N/A', rsLabel='N/A';
+                try{
+                  const ndxD=await fetchUrl('https://query1.finance.yahoo.com/v8/finance/chart/%5ENDX?interval=1d&range=2d');
+                  const ndxQ=ndxD.chart.result[0].indicators.quote[0];
+                  const ndxC=ndxQ.close.filter(v=>v);
+                  ndxChg=((ndxC[ndxC.length-1]-ndxC[ndxC.length-2])/ndxC[ndxC.length-2]*100).toFixed(2);
+                }catch(e){}
+                try{
+                  const djiD=await fetchUrl('https://query1.finance.yahoo.com/v8/finance/chart/%5EDJI?interval=1d&range=2d');
+                  const djiQ=djiD.chart.result[0].indicators.quote[0];
+                  const djiC=djiQ.close.filter(v=>v);
+                  djiChg=((djiC[djiC.length-1]-djiC[djiC.length-2])/djiC[djiC.length-2]*100).toFixed(2);
+                }catch(e){}
+
+                // D1 ATR for weekly dist
+                const d1Url=`https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC?interval=1d&range=1mo`;
+                const d1Data=await fetchUrl(d1Url);
+                const d1Q=d1Data.chart.result[0].indicators.quote[0];
+                const d1H=d1Q.high.filter(v=>v),d1L=d1Q.low.filter(v=>v),d1C=d1Q.close.filter(v=>v);
+                const trs=[];
+                for(let i=1;i<d1C.length;i++) trs.push(Math.max(d1H[i]-d1L[i],Math.abs(d1H[i]-d1C[i-1]),Math.abs(d1L[i]-d1C[i-1])));
+                const atrD1=trs.slice(-14).reduce((a,b)=>a+b,0)/14;
+
+                const distH=Math.abs(spxPrice-parseFloat(prevWH));
+                const distL=Math.abs(spxPrice-parseFloat(prevWL));
+                const nearest=Math.min(distH,distL);
+                const weeklyOk=nearest<=atrD1*0.30;
+                const nearLevel=distH<distL?`W.High ${prevWH}`:`W.Low ${prevWL}`;
+
+                const dxyTrendTxt=mktCtx&&mktCtx.dxyTrend?mktCtx.dxyTrend:'?';
+                const vixTxt=mktCtx&&mktCtx.vix?mktCtx.vix.toFixed(1):'?';
+
+                const msg=
+                  `⏰ <b>NY OPEN za 15 min</b>
+
+`+
+                  `Weekly H: <b>${prevWH}</b> · Weekly L: <b>${prevWL}</b>
+`+
+                  `Odl. od poziomu: ${nearest.toFixed(1)} pkt ${weeklyOk?'✅':'❌ za daleko'}
+
+`+
+                  `RS: NDX ${ndxChg>=0?'+':''}${ndxChg}% · DJI ${djiChg>=0?'+':''}${djiChg}%
+`+
+                  `DXY: ${dxyTrendTxt==='up'?'↑ mocny':dxyTrendTxt==='down'?'↓ słaby':'→'} · VIX: ${vixTxt}
+
+`+
+                  (weeklyOk?`✅ Weekly OK — monitoruj OR`:`❌ Weekly daleko — rozważ skip`);
+
+                await sendTG(msg);
+                cache.alert1515Sent=true;
+                console.log('Alert 15:15 sent');
+              }catch(e){console.log('Alert 15:15 error:',e.message);}
+            }
+            // Reset 15:15 flag each day
+            if(session.total<900) cache.alert1515Sent=false;
+
             const lastScan=cache.lastScanTime||0;
             if(lastScan>0&&(Date.now()-lastScan)>35*60*1000&&!isManual)
               await sendTG('⚠️ <b>Trading Monitor</b>: brak skanu przez 35+ min!');
@@ -553,24 +623,31 @@ jobs:
 
                   if((isSignalA||isSignalB)&&prevSig!==thisSig){
                     const lot=isSignalB?instr.scalpLot:instr.lot;
-                    const isNear=Math.abs(price-ep)<atr*0.4;
+                    const distToEntry=Math.abs(price-ep);
+                    const isNear=distToEntry<atr*0.4;
+                    const pbLevel=srResult&&srResult.quality>=55?srResult.level:null;
+                    const distToPB=pbLevel?Math.abs(price-pbLevel):null;
+                    const isPullback=!isNear&&distToPB!==null&&distToPB<atr*2.5;
+                    const entryLabel=isNear?'RYNKOWE':isPullback?'PULLBACK':'LIMIT';
+                    const pbWarn=isPullback?`⏳ PULLBACK → ${pbLevel.toFixed(instr.dec)} (odl. ${distToPB.toFixed(instr.dec)})\n`:'';
                     const adrWarn=adrResult&&adrResult.pct>=75?`📊 ADR: ${adrResult.pct.toFixed(0)}% ${adrResult.pct>=90?'⚠️':''}  \n`:'';
                     const d1warn=(isL&&d1.trend==='DOWN')||(!isL&&d1.trend==='UP')?'\n⚠️ D1 niezgodny!':'';
 
                     messages.push(
                       `${isSignalA?'⚡ SYGNAŁ A':'🎯 SCALP B'} <b>${isL?'LONG ▲':'SHORT ▼'} ${instr.name}</b> [${conf.score}/${threshold}]\n`+
                       `Cena: ${price.toFixed(instr.dec)} (${chg>=0?'+':''}${chg.toFixed(2)}%)\n\n`+
-                      `Entry (${isNear?'RYNKOWE':'LIMIT'}): <b>${ep}</b>\n`+
+                      `Entry (${entryLabel}): <b>${ep}</b>\n`+
                       `SL: <b>${sl}</b> · Lot: ${lot}\n`+
                       `TP1 (50%): <b>${tp1}</b> → SL na entry\n`+
                       `TP2 (50%): <b>${tp2}</b> · R:R 1:${rr.toFixed(1)}\n\n`+
                       `D1: ${d1.trend} · H4: ${h4.trend} · ${m15.reason}\n`+
                       `VIX: ${vix?vix.toFixed(1):'—'} · ${sessLabel}\n`+
-                      adrWarn+d1warn+
+                      pbWarn+adrWarn+d1warn+
                       `Filters: ${conf.tags.join(' · ')}\n`+
                       `📌 TP1 → zamknij 50% → SL na entry`
                     );
                     // Zapisz pozycję do breakeven monitoring
+                    newCache.activePositions[instr.key]={dir:h1.dir,entry:ep,sl,tp1,tp2,dec:instr.dec,beAlerted:false,tp1Alerted:false};
                     newCache.activePositions[instr.key]={dir:h1.dir,entry:ep,sl,tp1,tp2,dec:instr.dec,beAlerted:false,tp1Alerted:false};
 
                   } else if(isSignalAnoM15&&prevSig!==thisSig){
