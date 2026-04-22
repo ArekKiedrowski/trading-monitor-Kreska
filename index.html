@@ -1756,12 +1756,12 @@ function renderORBPanel(s, price, m5, t) {
       }
     } else if(s.tradeCount>=2){
       sigCard.className='orb-card invalid';
-      document.getElementById('orb-signal-title').textContent='🔴 Koniec dnia — max 2 trade'y';
+      document.getElementById('orb-signal-title').textContent='🔴 Koniec dnia — max 2 tradey';
       document.getElementById('orb-signal-badge').className='orb-badge invalid';
       document.getElementById('orb-signal-badge').textContent='DONE';
       document.getElementById('orb-signal-levels').innerHTML='';
       document.getElementById('orb-timer').style.display='none';
-      document.getElementById('orb-signal-info').textContent='Wykorzystano limit 2 trade'ów. Do jutra.';
+      document.getElementById('orb-signal-info').textContent='Wykorzystano limit 2 tradów. Do jutra.';
     } else if(s.locationScore<2){
       sigCard.className='orb-card invalid';
       document.getElementById('orb-signal-title').textContent='❌ Location skip — środek niczego';
