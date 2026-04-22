@@ -282,7 +282,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     <div class="macro-grid" id="macro-grid"></div>
     <div class="score-summary" id="score-summary"></div>
     <div class="size-box" id="size-box">
-      <div class="size-label">Rekomendowany lot</div>
+      <div class="size-label">Rekomendowany lot ULTRA</div>
       <div class="size-val" id="size-val">—</div>
     </div>
   </div>
@@ -341,7 +341,8 @@ const INSTRUMENTS=[
 ];
 
 let running=false,nextIn=0,logs=[],newsBlocked=false,lastSignals={};
-const FORMING_EXPIRY_MS = 60*60*1000; // 1h
+const FORMING_EXPIRY_MS = 60*60*1000;
+const ULTRA_MODE = true; // 1h
 // formingTimestamps w sessionStorage — przezywa odswiezenie strony
 function getFT(){try{return JSON.parse(sessionStorage.getItem('formingTS')||'{}');}catch(e){return {};}}
 function setFT(obj){try{sessionStorage.setItem('formingTS',JSON.stringify(obj));}catch(e){}}
@@ -358,6 +359,41 @@ function waw(){
     active:(total>=480||total<=60),dow,
     asian:total>=120&&total<540,london:total>=540&&total<720,
     ny:total>=900&&total<1080,overlap:total>=900&&total<1020};
+}
+
+
+function calcPositionSize(capital, riskPct, entry, sl, instr){
+  const cap = Number(capital)||0;
+  const riskValue = cap * ((Number(riskPct)||2)/100);
+  const dist = Math.abs((Number(entry)||0) - (Number(sl)||0));
+  if(!cap || !dist) return {lot:0, riskValue, dist, points:0};
+  let pointValue = 1;
+  if(instr.key==='us500') pointValue = 1;
+  else if(instr.key==='gold') pointValue = 100;
+  else if(instr.key==='eurusd') pointValue = 100000;
+  else if(instr.key==='btc') pointValue = 1;
+  const raw = riskValue / (dist * pointValue);
+  const step = instr.key==='btc' ? 0.001 : 0.01;
+  const minLot = instr.key==='btc' ? 0.001 : 0.01;
+  const lot = Math.max(minLot, Math.floor(raw/step)*step);
+  return {lot:+lot.toFixed(instr.key==='btc'?3:2), riskValue, dist, points:dist};
+}
+function marketWatcherAdjust(dir, instr, baseScore, ctx){
+  let score = baseScore;
+  const notes = [];
+  const dxyTrend = ctx?.dxyTrend || 'neutral';
+  const vix = ctx?.vix ?? null;
+  if(instr.key==='gold'){
+    if(dir==='LONG' && dxyTrend==='up'){ score -= 12; notes.push('DXY rośnie przeciw GOLD'); }
+    if(dir==='SHORT' && dxyTrend==='down'){ score -= 8; notes.push('DXY słaby przeciw SHORT GOLD'); }
+    if(dir==='SHORT' && dxyTrend==='up'){ score += 6; notes.push('DXY wspiera SHORT GOLD'); }
+  }
+  if(instr.key==='us500' && vix!==null){
+    if(dir==='LONG' && vix < 18){ score += 8; notes.push('Niski VIX wspiera LONG'); }
+    if(dir==='LONG' && vix > 25){ score -= 12; notes.push('Wysoki VIX ciąży LONG'); }
+    if(dir==='SHORT' && vix > 25){ score += 6; notes.push('Wysoki VIX wspiera SHORT'); }
+  }
+  return {score: Math.max(0, Math.min(100, score)), notes};
 }
 
 function updateSessionUI(){
