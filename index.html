@@ -73,7 +73,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .b-active-short{background:var(--rbg);color:var(--red);border:1px solid var(--rb)}
 .b-forming{background:var(--abg);color:var(--amber);border:1px solid var(--ab)}
 .b-wait{background:var(--bg3);color:var(--muted2);border:1px solid var(--border)}
-.b-scan{background:var(--abg);color:var(--amber);border:1px solid var(--ab)} .b-skip{background:var(--rbg);color:var(--red);border:1px solid var(--rb)} .b-micro{background:rgba(59,130,246,0.10);color:var(--blue);border:1px solid rgba(59,130,246,0.35)} .setup-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;margin-bottom:8px} .setup-fb{background:rgba(239,68,68,0.10);color:var(--red);border:1px solid var(--rb)} .setup-bp{background:rgba(16,185,129,0.10);color:var(--green);border:1px solid var(--gb)} .setup-ip{background:rgba(139,92,246,0.10);color:var(--purple);border:1px solid rgba(139,92,246,0.35)}
+.b-scan{background:var(--abg);color:var(--amber);border:1px solid var(--ab)}
 .ibody{display:none;margin-top:.75rem}
 .icard.sig-active .ibody,.icard.sig-forming .ibody{display:block}
 .score-row{display:flex;align-items:center;gap:10px;margin-bottom:.75rem}
@@ -206,7 +206,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .size-box{padding:10px 14px;border-radius:var(--rs);margin-bottom:.6rem;text-align:center}
 .size-full{background:rgba(16,185,129,0.1);border:1px solid var(--gb)}
 .size-half{background:rgba(245,158,11,0.1);border:1px solid var(--ab)}
-.size-skip{background:rgba(239,68,68,0.1);border:1px solid var(--rb)} .size-micro{background:rgba(59,130,246,0.10);border:1px solid rgba(59,130,246,0.35)}
+.size-skip{background:rgba(239,68,68,0.1);border:1px solid var(--rb)}
 .size-label{font-size:11px;color:var(--muted);margin-bottom:2px}
 .size-val{font-size:18px;font-weight:700}
 .size-full .size-val{color:var(--green)}
@@ -331,7 +331,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 
 const INSTRUMENTS=[
   // ── TRADING ──────────────────────────────────────────────────
-  {key:'us500', name:'US500',   sym:'^GSPC',    src:'yahoo', sl:20,    tp:40,    dec:1, lot:0.05, rsiOB:70, rsiOS:30, atrPctMin:0.15, adxRange:20, adxTrend:25, atrSlMult:0.8,  atrTpMult:2.0, srBuffer:0.0, scalpAtrMax:25,    scalpLot:0.03, role:'trading', profile:'orb'},
+  {key:'us500', name:'US500',   sym:'ES=F',    src:'yahoo', sl:20,    tp:40,    dec:1, lot:0.05, rsiOB:70, rsiOS:30, atrPctMin:0.15, adxRange:20, adxTrend:25, atrSlMult:0.8,  atrTpMult:2.0, srBuffer:0.0, scalpAtrMax:25,    scalpLot:0.03, role:'trading', profile:'orb'},
   {key:'btc',   name:'BTC/USD', sym:'BTC-USD',  src:'yahoo', sl:500,   tp:1500,  dec:0, lot:0.001,rsiOB:70, rsiOS:30, atrPctMin:0.50, adxRange:18, adxTrend:25, atrSlMult:0.8,  atrTpMult:2.0, srBuffer:0.0, scalpAtrMax:3000,  scalpLot:0.001,role:'trading', profile:'btc'},
   {key:'gold',  name:'GOLD',    sym:'XAUUSD=X', src:'yahoo', sl:25,    tp:50,    dec:1, lot:0.05, rsiOB:68, rsiOS:32, atrPctMin:0.20, adxRange:20, adxTrend:25, atrSlMult:1.0,  atrTpMult:2.2, srBuffer:0.3, scalpAtrMax:18,    scalpLot:0.03, role:'trading', profile:'mean_reversion'},
   {key:'eurusd',name:'EUR/USD', sym:'EURUSD=X', src:'yahoo', sl:0.0015,tp:0.003, dec:5, lot:0.05, rsiOB:65, rsiOS:35, atrPctMin:0.10, adxRange:18, adxTrend:25, atrSlMult:0.7,  atrTpMult:1.8, srBuffer:0.0, scalpAtrMax:0.001, scalpLot:0.03, role:'trading', profile:'fade'},
@@ -340,7 +340,7 @@ const INSTRUMENTS=[
   {key:'eth',   name:'ETH/USD', sym:'ETH-USD',  src:'yahoo', dec:2, role:'flow'},
 ];
 
-let running=false,nextIn=0,logs=[],newsBlocked=false,lastSignals={},scanning=false;
+let running=false,nextIn=0,logs=[],newsBlocked=false,lastSignals={};
 const FORMING_EXPIRY_MS = 60*60*1000; // 1h
 // formingTimestamps w sessionStorage — przezywa odswiezenie strony
 function getFT(){try{return JSON.parse(sessionStorage.getItem('formingTS')||'{}');}catch(e){return {};}}
@@ -349,19 +349,17 @@ let mktCtx={dxy:null,dxyCloses:[],dxyTrend:'neutral',vix:null,session:{}};
 
 // Telegram wysyłany wyłącznie przez GitHub Actions (scan.yml) — nie z przeglądarki
 
-function getWarsawOffsetHours(now=new Date()){
-  const utc = new Date(now.toLocaleString('en-US',{timeZone:'UTC'}));
-  const waw = new Date(now.toLocaleString('en-US',{timeZone:'Europe/Warsaw'}));
-  return Math.round((waw - utc) / 36e5);
-}
 function waw(){
   const now=new Date(),tz='Europe/Warsaw';
-  const parts=new Intl.DateTimeFormat('en-GB',{timeZone:tz,hour:'2-digit',minute:'2-digit',weekday:'long',hour12:false}).formatToParts(now);
-  const get=t=>parts.find(p=>p.type===t)?.value;
-  const h=parseInt(get('hour')||'0',10),m=parseInt(get('minute')||'0',10),total=h*60+m;
+  const g=t=>parseInt(new Intl.DateTimeFormat('pl-PL',{timeZone:tz,[t]:'2-digit',hour12:false}).format(now));
+  const h=g('hour'),m=g('minute'),total=h*60+m;
   const dow=new Intl.DateTimeFormat('pl-PL',{timeZone:tz,weekday:'long'}).format(now);
-  return {h,m,total,str:String(h).padStart(2,'0')+':'+String(m).padStart(2,'0'),active:(total>=480||total<=60),dow,offset:getWarsawOffsetHours(now),asian:total>=120&&total<540,london:total>=540&&total<720,ny:total>=900&&total<1080,overlap:total>=900&&total<1020};
+  return{h,m,total,str:String(h).padStart(2,'0')+':'+String(m).padStart(2,'0'),
+    active:(total>=480||total<=60),dow,
+    asian:total>=120&&total<540,london:total>=540&&total<720,
+    ny:total>=900&&total<1080,overlap:total>=900&&total<1020};
 }
+
 function updateSessionUI(){
   const t=waw();
   const upd=(id,on,ov)=>document.getElementById(id).className='sess'+(ov?' overlap':on?' active':'');
@@ -810,7 +808,7 @@ async function loadVIX(){
 }
 async function loadCOT(){
   const SYMS={
-    us500:{sym:'^GSPC',label:'US500'},
+    us500:{sym:'ES=F',label:'US500'},
     btc:{sym:'BTC-USD',label:'BTC'},
     gold:{sym:'XAUUSD=X',label:'GOLD'},
     eurusd:{sym:'EURUSD=X',label:'EUR/USD'}
@@ -1066,9 +1064,6 @@ function renderForming(instr,price,h1,conf,d1,h4,minsLeft){
 
 // ─── MAIN SCAN ───────────────────────────────────────────────
 async function scan(){
-  if(scanning) return;
-  scanning=true;
-  try {
   const t=waw();
   await Promise.all([loadCalendar(),loadDXY(),loadVIX()]);
   if(!t.active){setTxt('Poza godzinami (8:00–01:00)');schedNext();return;}
@@ -1243,7 +1238,7 @@ async function scan(){
           setBadge(instr.key,badgeCls,badgeTxt);
           const _fta=getFT();delete _fta[instr.key];setFT(_fta);
           setCard(instr.key,'sig-active'+(isL?'':' short'));
-          if(h1.dir==='LONG'||h1.dir==='SHORT'){ const setup={type:isSignalB?'IMPULSE_PULLBACK':'BREAKOUT',dir:h1.dir}; const riskDecision={action:isSignalB?'MICRO':'FULL',sizeMult:isSignalB?0.25:1.0,reasons:[],band:isSignalB?'HIGH':'LOW'}; renderSignal(instr,price,setup,riskDecision,conf,h1,d1,h4,srResult); }
+          renderActive(instr,price,h1.dir,srResult,conf,h1,d1,h4,isSignalB);
         } else {
           const _ft=getFT();const prevFT=_ft[instr.key];
           const sameDir=prevFT&&prevFT.dir===h1.dir;
@@ -1322,7 +1317,6 @@ async function scan(){
   else if(blockedCount>0)setTxt('NEWS BLOCK na '+blockedCount+' instrumencie');
   else setTxt('Brak setupów — skan za '+interval+' min');
   schedNext();
-  } finally { scanning=false; }
 }
 
 function schedNext(){if(!running)return;const i=parseInt(document.getElementById('scanmin').value)||5;nextIn=i*60;}
@@ -1485,7 +1479,7 @@ async function loadORBMacro(price, orH, orL, orSize, atrM5, locationScore, dayBi
       fetchD1ATR()
     ]);
 
-    const spxChg = weekly && weekly.price ? ((price-weekly.price)/weekly.price)*100 : 0;
+    const spxChg = mktCtx.dxy!==null ? (price-(price/(1+mktCtx.dxyTrend==='up'?0.001:-0.001)))/price*100 : 0;
     // Use prev close from mktCtx if available, else estimate
     const spxChgReal = weekly ? (price-weekly.price)/weekly.price*100 : 0;
 
@@ -2022,7 +2016,7 @@ setTimeout(runORB, 2000);
 loadCalendar();loadDXY();loadVIX();loadCOT();setInterval(tick,1000);tick();updateRisk();
 // Auto-refresh cen co 60s niezależnie od skanu
 async function refreshPrices(){
-  for(const instr of INSTRUMENTS.filter(i=>i.role==='trading')){
+  for(const instr of INSTRUMENTS){
     try{
       const data=await fetchYahoo(instr.sym);
       const{price,prev}=data;
@@ -2038,10 +2032,4 @@ async function refreshPrices(){
 setInterval(refreshPrices,45000);
 </script>
 </body>
-</html>function setupLabel(type){
-  if(type==='FAILED_BREAKOUT') return {txt:'Failed Breakout',cls:'setup-fb',emoji:'🪤'};
-  if(type==='BREAKOUT') return {txt:'Breakout',cls:'setup-bp',emoji:'🚀'};
-  return {txt:'Impulse + Pullback',cls:'setup-ip',emoji:'📐'};
-}
-
-
+</html>
