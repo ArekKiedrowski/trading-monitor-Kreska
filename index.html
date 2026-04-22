@@ -360,7 +360,7 @@ function waw(){
   const h=g('hour'),m=g('minute'),total=h*60+m;
   const dow=new Intl.DateTimeFormat('pl-PL',{timeZone:tz,weekday:'long'}).format(now);
   return{h,m,total,str:String(h).padStart(2,'0')+':'+String(m).padStart(2,'0'),
-    active:h>=8&&h<24,dow,
+    active:(total>=510||total<=30),dow,
     asian:total>=120&&total<540,london:total>=540&&total<720,
     ny:total>=900&&total<1080,overlap:total>=900&&total<1020};
 }
