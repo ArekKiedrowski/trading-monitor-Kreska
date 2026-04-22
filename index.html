@@ -255,8 +255,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   <div class="scell"><div class="slbl">Skan co (min)</div><input class="sinput" id="scanmin" type="number" value="2" min="1" max="30"><div class="ssub">Zalecane: 2 min</div></div>
 </div>
 <div class="brow">
-  <button class="bprimary" id="btnstart" onclick="toggleMonitor()">Start monitoring ▶</button>
-  <button class="bsec" onclick="scanNow()">Skan teraz</button>
+  <button class="bprimary" id="btnstart">Start monitoring ▶</button>
+  <button class="bsec" >Skan teraz</button>
 </div>
 <div class="slabel">kalendarz makro — dziś</div>
 <div class="cal-section" id="cal-section"><div class="lempty">Ładowanie...</div></div>
@@ -746,6 +746,10 @@ function boot(){
   setInterval(tick, 1000);
   refreshPrices();
 }
+
+
+window.toggleMonitor = toggleRun;
+window.scanNow = () => scan();
 
 document.addEventListener('DOMContentLoaded', boot);
 </script>
