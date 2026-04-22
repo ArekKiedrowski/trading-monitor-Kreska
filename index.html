@@ -221,6 +221,27 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .score-circle.half{background:rgba(245,158,11,0.2);color:var(--amber);border:2px solid var(--amber)}
 .score-circle.skip{background:rgba(239,68,68,0.2);color:var(--red);border:2px solid var(--red)}
 .disc{font-size:11px;color:var(--muted);text-align:center;margin-top:2rem;line-height:1.6;opacity:.5}
+/* ─── NOWE KLASY TRADE ──────────────────────────────────────── */
+.trade-class{font-size:24px;font-weight:800;margin-bottom:4px}
+.trade-class.a{color:var(--green)}.trade-class.b{color:var(--amber)}.trade-class.c{color:var(--amber)}.trade-class.x{color:var(--red)}
+.setup-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-bottom:8px}
+.setup-fb{background:rgba(139,92,246,0.15);color:var(--purple);border:1px solid rgba(139,92,246,0.4)}
+.setup-bp{background:rgba(59,130,246,0.12);color:var(--blue);border:1px solid rgba(59,130,246,0.3)}
+.setup-ip{background:rgba(16,185,129,0.10);color:var(--green);border:1px solid rgba(16,185,129,0.3)}
+.risk-bar-wrap{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;margin-bottom:6px;flex:1}
+.risk-bar-fill{height:100%;border-radius:3px}
+.risk-low{background:var(--green)}.risk-moderate{background:var(--amber)}.risk-high{background:rgba(245,100,0,0.8)}.risk-skip{background:var(--red)}
+.risk-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.risk-label{font-size:11px;font-weight:600;white-space:nowrap}
+.blocked-box{padding:10px 14px;background:rgba(239,68,68,0.06);border:1px solid var(--rb);border-radius:var(--rs);margin-bottom:8px}
+.blocked-title{font-size:13px;font-weight:700;color:var(--red);margin-bottom:4px}
+.blocked-reasons{font-size:11px;color:var(--muted2);line-height:1.7}
+.tp3-val{font-size:14px;font-weight:700;color:var(--blue);font-variant-numeric:tabular-nums}
+.icard.sig-blocked{border-color:rgba(239,68,68,0.3);background:rgba(239,68,68,0.03)}
+.b-blocked{background:rgba(239,68,68,0.1);color:var(--red);border:1px solid var(--rb)}
+.b-a-trade{background:rgba(16,185,129,0.15);color:var(--green);border:1px solid var(--gb)}
+.b-b-trade{background:rgba(245,158,11,0.15);color:var(--amber);border:1px solid var(--ab)}
+.b-c-trade{background:rgba(245,100,0,0.12);color:#f97316;border:1px solid rgba(245,100,0,0.4)}
 </style>
 </head>
 <body>
@@ -333,7 +354,7 @@ const INSTRUMENTS=[
   // ── TRADING ──────────────────────────────────────────────────
   {key:'us500', name:'US500',   sym:'^GSPC',    src:'yahoo', sl:20,    tp:40,    dec:1, lot:0.05, rsiOB:70, rsiOS:30, atrPctMin:0.15, adxRange:20, adxTrend:25, atrSlMult:0.8,  atrTpMult:2.0, srBuffer:0.0, scalpAtrMax:25,    scalpLot:0.03, role:'trading', profile:'orb'},
   {key:'btc',   name:'BTC/USD', sym:'BTC-USD',  src:'yahoo', sl:500,   tp:1500,  dec:0, lot:0.001,rsiOB:70, rsiOS:30, atrPctMin:0.50, adxRange:18, adxTrend:25, atrSlMult:0.8,  atrTpMult:2.0, srBuffer:0.0, scalpAtrMax:3000,  scalpLot:0.001,role:'trading', profile:'btc'},
-  {key:'gold',  name:'GOLD',    sym:'XAUUSD=X', src:'yahoo', sl:25,    tp:50,    dec:1, lot:0.05, rsiOB:68, rsiOS:32, atrPctMin:0.20, adxRange:20, adxTrend:25, atrSlMult:1.0,  atrTpMult:2.2, srBuffer:0.3, scalpAtrMax:18,    scalpLot:0.03, role:'trading', profile:'mean_reversion'},
+  {key:'gold',  name:'GOLD',    sym:'GC=F',     src:'yahoo', sl:25,    tp:50,    dec:1, lot:0.05, rsiOB:68, rsiOS:32, atrPctMin:0.20, adxRange:20, adxTrend:25, atrSlMult:1.0,  atrTpMult:2.2, srBuffer:0.3, scalpAtrMax:18,    scalpLot:0.03, role:'trading', profile:'mean_reversion'},
   {key:'eurusd',name:'EUR/USD', sym:'EURUSD=X', src:'yahoo', sl:0.0015,tp:0.003, dec:5, lot:0.05, rsiOB:65, rsiOS:35, atrPctMin:0.10, adxRange:18, adxTrend:25, atrSlMult:0.7,  atrTpMult:1.8, srBuffer:0.0, scalpAtrMax:0.001, scalpLot:0.03, role:'trading', profile:'fade'},
   // ── FLOW (tylko cena, bez sygnałów) ──────────────────────────
   {key:'ndx',   name:'NDX',     sym:'^NDX',     src:'yahoo', dec:1, role:'flow'},
@@ -544,6 +565,117 @@ function regimeLabel(regime){
   if(regime==='TREND') return{txt:'TREND',cls:'ctx-up'};
   if(regime==='RANGE') return{txt:'RANGE',cls:'ctx-down'};
   return{txt:'TRANSITION',cls:'ctx-neu'};
+}
+
+// ─── SETUP DETECTION ENGINE ──────────────────────────────────
+function getRecentRange(highs,lows,lookback){
+  lookback=lookback||20;
+  return{recentHigh:Math.max(...highs.slice(-lookback)),recentLow:Math.min(...lows.slice(-lookback))};
+}
+function detectFailedBreakout(closes,highs,lows,lookback){
+  lookback=lookback||20;
+  if(closes.length<lookback+3)return null;
+  const{recentHigh,recentLow}=getRecentRange(highs.slice(0,-1),lows.slice(0,-1),lookback);
+  const close=closes[closes.length-1];
+  const high=highs[highs.length-1],low=lows[lows.length-1];
+  if(high>recentHigh&&close<recentHigh)return{type:'FAILED_BREAKOUT',dir:'SHORT',level:recentHigh};
+  if(low<recentLow&&close>recentLow)return{type:'FAILED_BREAKOUT',dir:'LONG',level:recentLow};
+  return null;
+}
+function detectBreakout(closes,highs,lows,lookback){
+  lookback=lookback||20;
+  if(closes.length<lookback+2)return null;
+  const{recentHigh,recentLow}=getRecentRange(highs.slice(0,-1),lows.slice(0,-1),lookback);
+  const close=closes[closes.length-1];
+  if(close>recentHigh)return{type:'BREAKOUT',dir:'LONG',level:recentHigh};
+  if(close<recentLow)return{type:'BREAKOUT',dir:'SHORT',level:recentLow};
+  return null;
+}
+function detectImpulsePullback(closes,highs,lows,atrVal){
+  if(closes.length<12||!atrVal)return null;
+  const move5=closes[closes.length-1]-closes[closes.length-6];
+  const retrace=closes[closes.length-1]-closes[closes.length-3];
+  if(move5>atrVal*1.5&&Math.abs(retrace)<Math.abs(move5)*0.5)return{type:'IMPULSE_PULLBACK',dir:'LONG'};
+  if(move5<-atrVal*1.5&&Math.abs(retrace)<Math.abs(move5)*0.5)return{type:'IMPULSE_PULLBACK',dir:'SHORT'};
+  return null;
+}
+function detectSetup(closes,highs,lows,atrVal){
+  const failed=detectFailedBreakout(closes,highs,lows);
+  if(failed)return failed;
+  const pullback=detectImpulsePullback(closes,highs,lows,atrVal);
+  if(pullback)return pullback;
+  const breakout=detectBreakout(closes,highs,lows);
+  if(breakout)return breakout;
+  return null;
+}
+function setupLabel(type){
+  if(type==='FAILED_BREAKOUT')return{txt:'Failed Breakout',cls:'setup-fb',emoji:'🪤'};
+  if(type==='BREAKOUT')return{txt:'Breakout',cls:'setup-bp',emoji:'🚀'};
+  return{txt:'Impulse+Pullback',cls:'setup-ip',emoji:'📐'};
+}
+
+// ─── RISK SCORE ───────────────────────────────────────────────
+function calcRiskScore({setup,regime,session,clearPath,overextended,h4trend,d1trend,btcStructureScore,vix,dxyCorr,instr}){
+  let risk=0;const reasons=[];
+  if(overextended){risk+=20;reasons.push('overextended');}
+  if(!clearPath){risk+=20;reasons.push('brak clear path');}
+  if(setup.type==='BREAKOUT'&&regime==='RANGE'){risk+=15;reasons.push('breakout w range');}
+  if(setup.type==='IMPULSE_PULLBACK'&&regime!=='TREND'){risk+=12;reasons.push('pullback poza trendem');}
+  if(setup.type==='FAILED_BREAKOUT'&&regime==='TREND'){risk+=8;reasons.push('failed breakout vs trend');}
+  if(!session.overlap&&!session.ny&&!session.london){risk+=15;reasons.push('zła sesja');}
+  if((setup.dir==='LONG'&&h4trend==='DOWN')||(setup.dir==='SHORT'&&h4trend==='UP')){risk+=12;reasons.push('H4 przeciwny');}
+  if((setup.dir==='LONG'&&d1trend==='DOWN')||(setup.dir==='SHORT'&&d1trend==='UP')){risk+=8;reasons.push('D1 przeciwny');}
+  if(instr.key==='btc'&&btcStructureScore<=1){risk+=15;reasons.push('słaba struktura BTC');}
+  if(instr.key==='us500'&&vix!==null&&vix>30&&setup.dir==='LONG'){risk+=10;reasons.push('wysoki VIX');}
+  if((instr.key==='gold'||instr.key==='us500')&&dxyCorr!==null){
+    if(setup.dir==='LONG'&&dxyCorr>0.3){risk+=8;reasons.push('DXY konflikt');}
+    if(setup.dir==='SHORT'&&dxyCorr<-0.3){risk+=8;reasons.push('DXY konflikt');}
+  }
+  risk=Math.min(100,risk);
+  let band,action,sizeMult;
+  if(risk>=65){band='SKIP';action='SKIP';sizeMult=0;}
+  else if(risk>=45){band='HIGH';action='MICRO';sizeMult=0.25;}
+  else if(risk>=25){band='MODERATE';action='HALF';sizeMult=0.5;}
+  else{band='LOW';action='FULL';sizeMult=1.0;}
+  return{risk,band,action,sizeMult,reasons};
+}
+
+// ─── BUILD TRADE LEVELS ───────────────────────────────────────
+function buildTradeLevels(setup,price,closes,highs,lows,atrVal,instr){
+  const isL=setup.dir==='LONG';
+  const d=instr.dec;
+  let entry,sl;
+  if(setup.type==='FAILED_BREAKOUT'){
+    entry=parseFloat(price.toFixed(d));
+    sl=isL?parseFloat((setup.level-atrVal*0.5).toFixed(d)):parseFloat((setup.level+atrVal*0.5).toFixed(d));
+  } else if(setup.type==='BREAKOUT'){
+    entry=parseFloat(price.toFixed(d));
+    const recentLL=isL?Math.min(...lows.slice(-5)):null;
+    const recentHH=!isL?Math.max(...highs.slice(-5)):null;
+    sl=isL?parseFloat((Math.min(setup.level-atrVal*0.3,recentLL||setup.level-atrVal*0.5)).toFixed(d))
+          :parseFloat((Math.max(setup.level+atrVal*0.3,recentHH||setup.level+atrVal*0.5)).toFixed(d));
+  } else {
+    // IMPULSE_PULLBACK
+    entry=parseFloat(price.toFixed(d));
+    const pullbackL=isL?Math.min(...lows.slice(-4)):Math.max(...highs.slice(-4));
+    sl=isL?parseFloat((pullbackL-atrVal*0.2).toFixed(d)):parseFloat((pullbackL+atrVal*0.2).toFixed(d));
+  }
+  const r=Math.abs(entry-sl);
+  const tp1=parseFloat((isL?entry+r:entry-r).toFixed(d));
+  const tp2=parseFloat((isL?entry+r*2:entry-r*2).toFixed(d));
+  const tp3=parseFloat((isL?entry+r*3:entry-r*3).toFixed(d));
+  const rr=(r>0?(r*2/r):2).toFixed(1);
+  return{entry,sl,tp1,tp2,tp3,r};
+}
+
+// ─── TRADE CLASS ──────────────────────────────────────────────
+function getTradeClass(riskData,confScore){
+  if(riskData.action==='SKIP')return{cls:'X',label:'X — SKIP',badgeCls:'b-blocked',cardCls:'sig-blocked'};
+  if(riskData.band==='LOW'&&confScore>=75)return{cls:'A',label:'A',badgeCls:'b-a-trade',cardCls:'sig-active'};
+  if(riskData.band==='MODERATE'&&confScore>=60)return{cls:'B',label:'B',badgeCls:'b-b-trade',cardCls:'sig-forming'};
+  if(riskData.band==='HIGH'&&confScore>=50)return{cls:'C',label:'C',badgeCls:'b-c-trade',cardCls:'sig-forming'};
+  if(confScore<50)return{cls:'X',label:'X — niska jakość',badgeCls:'b-blocked',cardCls:'sig-blocked'};
+  return{cls:'B',label:'B',badgeCls:'b-b-trade',cardCls:'sig-forming'};
 }
 
 // ─── TIMEFRAME ANALYSIS ──────────────────────────────────────
@@ -1062,6 +1194,91 @@ function renderForming(instr,price,h1,conf,d1,h4,minsLeft){
   }
 }
 
+// ─── RENDER SIGNAL (nowa architektura) ───────────────────────
+function renderSignal(instr,price,setup,riskData,tradeClass,conf,levels,d1,h4,h1){
+  const isL=setup.dir==='LONG';
+  const sl_label=setupLabel(setup.type);
+  const cap=parseFloat(document.getElementById('capital').value)||10000;
+  const baseLot=instr.lot;
+  const lot=parseFloat((baseLot*riskData.sizeMult).toFixed(3));
+  const risk=(cap*0.02).toFixed(0);
+  const scoreColor=conf.score>=75?'var(--green)':conf.score>=60?'var(--amber)':'var(--red)';
+  const riskPct=Math.min(100,riskData.risk);
+  const riskCls=riskData.band==='LOW'?'risk-low':riskData.band==='MODERATE'?'risk-moderate':riskData.band==='HIGH'?'risk-high':'risk-skip';
+  const tfColor=t=>t==='UP'?'tf-up':t==='DOWN'?'tf-down':'tf-neu';
+
+  // Blocked signal
+  if(tradeClass.cls==='X'){
+    document.getElementById('body-'+instr.key).innerHTML=
+      '<div class="blocked-box">'+
+      '<div class="blocked-title">🚫 '+(setup.type==='FAILED_BREAKOUT'?'🪤':setup.type==='BREAKOUT'?'🚀':'📐')+' '+sl_label.txt+' — ZABLOKOWANY</div>'+
+      '<div class="blocked-reasons">'+riskData.reasons.join(' · ')+'</div>'+
+      '</div>'+
+      '<div class="risk-row"><span class="risk-label" style="color:var(--red)">RYZYKO '+riskData.risk+'</span>'+
+      '<div class="risk-bar-wrap"><div class="risk-bar-fill '+riskCls+'" style="width:'+riskPct+'%"></div></div>'+
+      '</div>'+
+      '<div style="font-size:11px;color:var(--muted2)">Setup wykryty, ale warunki ryzyka nie pozwalają na wejście.</div>';
+    return;
+  }
+
+  const tp3html=riskData.band==='LOW'?
+    '<div class="tp-cell"><div class="tp-label">TP3 — 3R (tylko LOW risk)</div><div class="tp3-val">'+levels.tp3+'</div></div>':'';
+
+  document.getElementById('body-'+instr.key).innerHTML=
+    // Trade class + setup
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'+
+    '<div class="trade-class '+tradeClass.cls.toLowerCase()+'">'+tradeClass.cls+'</div>'+
+    '<div>'+
+    '<span class="setup-badge '+sl_label.cls+'">'+sl_label.emoji+' '+sl_label.txt+'</span><br>'+
+    '<span style="font-size:18px;font-weight:700;color:'+(isL?'var(--green)':'var(--red)')+'">'+
+    (isL?'LONG ▲':'SHORT ▼')+'</span>'+
+    '</div>'+
+    '<div style="margin-left:auto;text-align:right">'+
+    '<div style="font-size:11px;color:var(--muted)">Lot</div>'+
+    '<div style="font-size:16px;font-weight:700;color:var(--amber)">'+lot+'</div>'+
+    '</div>'+
+    '</div>'+
+    // Risk bar
+    '<div class="risk-row">'+
+    '<span class="risk-label risk-'+riskData.band.toLowerCase()+'">'+riskData.band+' '+riskData.risk+'</span>'+
+    '<div class="risk-bar-wrap"><div class="risk-bar-fill '+riskCls+'" style="width:'+riskPct+'%"></div></div>'+
+    '<span class="score-val" style="color:'+scoreColor+'">'+conf.score+'</span>'+
+    '</div>'+
+    // TF row
+    '<div class="tf-row">'+
+    '<div class="tf-cell"><div class="tf-label">D1</div><div class="tf-val '+tfColor(d1.trend)+'">'+d1.trend+'</div></div>'+
+    '<div class="tf-cell"><div class="tf-label">H4</div><div class="tf-val '+tfColor(h4.trend)+'">'+h4.trend+'</div></div>'+
+    '<div class="tf-cell"><div class="tf-label">Regime</div><div class="tf-val">'+(h1.regime||'—')+'</div></div>'+
+    '<div class="tf-cell"><div class="tf-label">ADX</div><div class="tf-val">'+(h1.adxVal?h1.adxVal.toFixed(1):'—')+'</div></div>'+
+    '</div>'+
+    // Levels
+    '<div class="trade-grid">'+
+    '<div class="tc"><div class="tc-l">Entry</div><div class="tc-v '+(isL?'long':'short')+'">'+levels.entry+'</div></div>'+
+    '<div class="tc"><div class="tc-l">Stop Loss</div><div class="tc-v sl">'+levels.sl+'</div></div>'+
+    '<div class="tc"><div class="tc-l">R:R</div><div class="tc-v">1:'+(levels.r>0?(Math.abs(levels.tp2-levels.entry)/levels.r).toFixed(1):'2.0')+'</div></div>'+
+    '</div>'+
+    '<div class="tp-grid" style="grid-template-columns:1fr 1fr '+(riskData.band==='LOW'?'1fr':'')+'">'+
+    '<div class="tp-cell"><div class="tp-label">TP1 — 50%</div><div class="tp-val tp1">'+levels.tp1+'</div><div class="tp-sub">→ SL na entry</div></div>'+
+    '<div class="tp-cell"><div class="tp-label">TP2 — 50%</div><div class="tp-val tp2">'+levels.tp2+'</div></div>'+
+    tp3html+
+    '</div>'+
+    // Risk reasons
+    (riskData.reasons.length?'<div style="font-size:11px;color:var(--muted2);padding:6px 0">⚠️ '+riskData.reasons.join(' · ')+'</div>':'')+
+    // Action box
+    '<div class="action-box">'+
+    'XTB → '+instr.name+' → <strong>'+levels.entry+'</strong> · SL <span class="asl">'+levels.sl+'</span>'+
+    '<br>TP1 <span class="atp1">'+levels.tp1+'</span> → zamknij 50% → przesuń SL na entry'+
+    '<br>TP2 <span class="atp2">'+levels.tp2+'</span> → zamknij resztę'+
+    (riskData.band==='LOW'?'<br>TP3 <span style="color:var(--blue)">'+levels.tp3+'</span> → runner (LOW risk only)':'')+
+    '</div>'+
+    '<div class="imeta"><div class="mi">ryzyko: <span>'+risk+' PLN</span></div>'+
+    '<div class="mi">size: <span>'+(riskData.sizeMult*100).toFixed(0)+'%</span></div>'+
+    '<div class="mi">klasa: <span style="color:'+scoreColor+'">'+tradeClass.cls+'</span></div></div>';
+
+  addLog(instr.name,isL?'active':'short',
+    tradeClass.cls+' '+sl_label.txt+' · Entry '+levels.entry+' · TP1 '+levels.tp1+' · Risk '+riskData.risk);
+}
+
 // ─── MAIN SCAN ───────────────────────────────────────────────
 async function scan(){
   const t=waw();
@@ -1164,143 +1381,77 @@ async function scan(){
         clearPath=pr.clear;
       }
 
-      // Confidence Score
+      // ── NOWA ARCHITEKTURA: price action trigger ───────────────
+      // Krok 1: wykryj setup
+      const setup=detectSetup(closes,highs,lows,h1.atrVal);
+
+      // Krok 2: clear path (do nowego setupu)
+      let clearPath=true;
+      if(setup&&h1.atrVal){
+        const isLs=setup.dir==='LONG';
+        const entry=parseFloat(price.toFixed(instr.dec));
+        const tp1est=isLs?entry+h1.atrVal:entry-h1.atrVal;
+        const pr=checkClearPath(h1.highs||highs.slice(0,-1),h1.lows||lows.slice(0,-1),h1.closes||closes.slice(0,-1),entry,tp1est,setup.dir,h1.atrVal);
+        clearPath=pr.clear;
+      }
+
+      // Krok 3: confidence (jakość, nie trigger)
       const conf=calcConfidence({
-        dir:h1.dir==='LONG'?'LONG':'SHORT',
+        dir:setup?setup.dir:(h1.trendUp?'LONG':'SHORT'),
         adxVal:h1.adxVal||0,rocVal:h1.rocVal,rsiVal:h1.rsiVal,
         atrPct:h1.atrPct,d1trend:d1.trend,h4trend:h4.trend,session:t,
-        srQuality:srResult?srResult.quality:0,
-        overextended:h1.overextended||false,
+        srQuality:0,overextended:h1.overextended||false,
         dxyCorr,vix:mktCtx.vix,instr,clearPath
       });
 
-      // BTC — specjalny routing przez BTC SCORE ENGINE
+      if(!setup){
+        // Brak price action trigger — brak setupu
+        setBadge(instr.key,'b-wait','brak setupu');setCard(instr.key,'');
+        document.getElementById('body-'+instr.key).innerHTML=
+          '<div style="font-size:11px;color:var(--muted2);padding:4px 0">Brak triggera · ADX '+
+          (h1.adxVal?h1.adxVal.toFixed(1):'?')+' · Regime '+(h1.regime||'—')+'</div>';
+        continue;
+      }
+
+      // BTC — uzupełnij o BTC score do risk scoring
+      let btcStructureScore=0;
       if(instr.profile==='btc'){
         const ethChg=mktCtx.ethChg!==undefined?mktCtx.ethChg:null;
         const btcScore=calcBTCScore(h1,ethChg);
-        const rl=regimeLabel(h1.regime||'TRANSITION');
-        // Render BTC SCORE card
-        const isActive=btcScore.total>=6&&btcScore.structure.score>0;
-        const isForming=btcScore.total>=4&&btcScore.structure.score>0&&!isActive;
-        if(isActive){
-          actives++;
-          setBadge(instr.key,btcScore.sizeMult===1?'b-active-long':'b-forming','BTC '+btcScore.total+'/10');
-          setCard(instr.key,'sig-active');
-        } else if(isForming){
-          forming++;
-          setBadge(instr.key,'b-forming','BTC SCORE '+btcScore.total);
-          setCard(instr.key,'sig-forming');
-        } else {
-          setBadge(instr.key,'b-wait','brak setupu');
-          setCard(instr.key,'');
-        }
-        document.getElementById('body-btc').innerHTML=
-          '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">'+
-          '<div style="font-size:28px;font-weight:800;color:'+(btcScore.total>=8?'var(--green)':btcScore.total>=6?'var(--amber)':'var(--red)')+'">'+btcScore.total+'<span style="font-size:14px;color:var(--muted)">/10</span></div>'+
-          '<div><div style="font-size:12px;font-weight:600;color:'+rl.cls.replace('ctx-','var(--')+'">Tryb: '+h1.regime+'</div>'+
-          '<div style="font-size:11px;color:var(--muted2)">'+btcScore.structure.label+(btcScore.structure.dir?' → '+btcScore.structure.dir:'')+'</div></div>'+
-          '<div style="margin-left:auto;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600" class="'+btcScore.decisionCls+'">'+btcScore.decision+'</div>'+
-          '</div>'+
-          '<div class="inds">'+
-          '<div class="ind"><div class="ind-l">Struktura</div><div class="ind-v">'+btcScore.structure.score+'/3</div></div>'+
-          '<div class="ind"><div class="ind-l">Lokacja</div><div class="ind-v">'+btcScore.locationScore+'/2</div></div>'+
-          '<div class="ind"><div class="ind-l">Regime</div><div class="ind-v">'+btcScore.regimeScore+'/2</div></div>'+
-          '<div class="ind"><div class="ind-l">Mom+Flow+Vol</div><div class="ind-v">'+(btcScore.momentumScore+btcScore.flowScore+btcScore.volScore)+'/3</div></div>'+
-          '</div>'+
-          (btcScore.structure.score===0?'<div style="font-size:13px;color:var(--red);padding:8px;background:var(--rbg);border-radius:6px">❌ Brak struktury — NO TRADE</div>':'');
-        if(isActive||isForming){
-          addLog('BTC',btcScore.structure.dir==='LONG'?'active':'short','Score '+btcScore.total+'/10 · '+btcScore.structure.label+' · '+btcScore.decision);
-        }
-        continue; // skip standard signal logic for BTC
+        btcStructureScore=btcScore.structure.score;
       }
 
-      if(h1.dir==='LONG'||h1.dir==='SHORT'){
-        const regSize=h1.regimeSize||{mult:0.75};
-        const isL=h1.dir==='LONG';
-        const atr=h1.atrVal||instr.sl;
-        const ep=srResult&&srResult.quality>=55?(isL?srResult.level-(instr.srBuffer*atr):srResult.level+(instr.srBuffer*atr)):price;
-        const sl2=isL?ep-atr*instr.atrSlMult:ep+atr*instr.atrSlMult;
-        const tp2=isL?ep+atr*instr.atrTpMult:ep-atr*instr.atrTpMult;
-        const rr=Math.abs(tp2-ep)/Math.max(0.00001,Math.abs(sl2-ep));
+      // Krok 4: risk score
+      const riskData=calcRiskScore({
+        setup,regime:h1.regime||'TRANSITION',session:t,
+        clearPath,overextended:h1.overextended||false,
+        h4trend:h4.trend,d1trend:d1.trend,
+        btcStructureScore,vix:mktCtx.vix,dxyCorr,instr
+      });
 
-        // Signal A: score>=70 + RR>=1.9 (lower threshold post ADX fix)
-        const isSignalA=conf.score>=70&&rr>=1.9;
-        // Signal B: scalp z liq sweep
-        const recentSweep=detectRecentLiqSweep(h1.highs||highs.slice(0,-1),h1.lows||lows.slice(0,-1),h1.closes||closes.slice(0,-1),h1.dir,3);
-        const calmATR=atr<=(instr.scalpAtrMax||20);
-        const isSignalB=conf.score>=80&&recentSweep&&calmATR&&rr>=1.2&&!isSignalA;
+      // Krok 5: trade class
+      const tradeClass=getTradeClass(riskData,conf.score);
 
-        if(isSignalA||isSignalB){
-          actives++;
-          const badgeCls=isSignalB?'b-forming':(isL?'b-active-long':'b-active-short');
-          const regLabel=' ['+h1.regime+']';
-          const badgeTxt=isSignalB?(isL?'SCALP ⚡ LONG':'SCALP ⚡ SHORT'):(isL?'LONG ▲'+regLabel:'SHORT ▼'+regLabel);
-          setBadge(instr.key,badgeCls,badgeTxt);
-          const _fta=getFT();delete _fta[instr.key];setFT(_fta);
-          setCard(instr.key,'sig-active'+(isL?'':' short'));
-          renderActive(instr,price,h1.dir,srResult,conf,h1,d1,h4,isSignalB);
-        } else {
-          const _ft=getFT();const prevFT=_ft[instr.key];
-          const sameDir=prevFT&&prevFT.dir===h1.dir;
-          const betterScore=!prevFT||conf.score>prevFT.score+5;
-          if(!prevFT||!sameDir||betterScore){_ft[instr.key]={ts:Date.now(),score:conf.score,dir:h1.dir};setFT(_ft);}
-          const _ft2=getFT();const age=Date.now()-(_ft2[instr.key]?.ts||Date.now());
-          if(age>FORMING_EXPIRY_MS){
-            const _ftd=getFT();delete _ftd[instr.key];setFT(_ftd);
-            setBadge(instr.key,'b-wait','brak setupu');setCard(instr.key,'');
-            document.getElementById('body-'+instr.key).innerHTML='';
-          } else {
-            const minsLeft=_ft2[instr.key]?Math.max(0,Math.round((FORMING_EXPIRY_MS-(Date.now()-_ft2[instr.key].ts))/60000)):60;
-            forming++;
-            setBadge(instr.key,'b-forming','FORMING '+conf.score);
-            setCard(instr.key,'sig-forming');
-            renderForming(instr,price,h1,conf,d1,h4,minsLeft);
-          }
-        }
-        // FORMING z analyzeH1 — ten sam mechanizm expiry
-        const _fth=getFT();const prevFT=_fth[instr.key];
-        const sameDir=prevFT&&prevFT.dir==='H1_FORMING';
-        const betterScore=!prevFT||conf.score>prevFT.score+5;
-        if(!prevFT||!sameDir||betterScore){
-          _fth[instr.key]={ts:Date.now(),score:conf.score,dir:'H1_FORMING'};setFT(_fth);
-        }
-        const _fth2=getFT();const age=Date.now()-_fth2[instr.key].ts;
-        if(age>FORMING_EXPIRY_MS){
-          const _ftdel=getFT();delete _ftdel[instr.key];setFT(_ftdel);
-          setBadge(instr.key,'b-wait','brak setupu');setCard(instr.key,'');
-          document.getElementById('body-'+instr.key).innerHTML='';
-        } else {
-          const minsLeft=Math.round((FORMING_EXPIRY_MS-age)/60000);
-          forming++;
-          setBadge(instr.key,'b-forming','forming...');
-          setCard(instr.key,'sig-forming');
-          renderForming(instr,price,h1,conf,d1,h4,minsLeft);
-        }
-      } else if(h1.dir==='FORMING'){
-        // FORMING z analyzeH1 — słaby trend, czekamy
-        const _fth=getFT();const prevFTh=_fth[instr.key];
-        if(!prevFTh||prevFTh.dir!=='H1_FORMING'||conf.score>prevFTh.score+5){
-          _fth[instr.key]={ts:Date.now(),score:conf.score,dir:'H1_FORMING'};setFT(_fth);
-        }
-        const _fth2=getFT();const ageH=Date.now()-(_fth2[instr.key]?.ts||Date.now());
-        if(ageH>FORMING_EXPIRY_MS){
-          const _ftdel=getFT();delete _ftdel[instr.key];setFT(_ftdel);
-          setBadge(instr.key,'b-wait','brak setupu');setCard(instr.key,'');
-          document.getElementById('body-'+instr.key).innerHTML='';
-        } else {
-          const minsLeftH=Math.round((FORMING_EXPIRY_MS-ageH)/60000);
-          forming++;
-          setBadge(instr.key,'b-forming','forming...');
-          setCard(instr.key,'sig-forming');
-          renderForming(instr,price,h1,conf,d1,h4,minsLeftH);
-        }
+      // Krok 6: poziomy
+      const levels=buildTradeLevels(setup,price,closes,highs,lows,h1.atrVal||instr.sl,instr);
+
+      // Krok 7: render
+      const isL=setup.dir==='LONG';
+      const sl_info=setupLabel(setup.type);
+
+      if(tradeClass.cls==='X'){
+        // Zablokowany — pokaż setup ale bez wejścia
+        setBadge(instr.key,'b-blocked','🚫 '+setup.dir);
+        setCard(instr.key,'sig-blocked');
+        forming++;
       } else {
-        // Brak kierunku — wyczyść też forming timestamp
-        const _ftclr=getFT();delete _ftclr[instr.key];setFT(_ftclr);
-        setBadge(instr.key,'b-wait','brak setupu');setCard(instr.key,'');
-        document.getElementById('body-'+instr.key).innerHTML='';
-        delete lastSignals[instr.name+'active'];delete lastSignals[instr.name+'short'];
+        actives++;
+        setBadge(instr.key,tradeClass.badgeCls,tradeClass.cls+' '+(isL?'▲ LONG':'▼ SHORT'));
+        setCard(instr.key,tradeClass.cardCls+(isL?'':' short'));
       }
+
+      renderSignal(instr,price,setup,riskData,tradeClass,conf,levels,d1,h4,h1);
+
     }catch(err){
       console.error(instr.name,err.message);
       setBadge(instr.key,'b-wait','błąd');setCard(instr.key,'');
