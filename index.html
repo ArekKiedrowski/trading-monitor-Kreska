@@ -759,19 +759,32 @@ async function loadCalendar(){
   const t=waw();
   try{
     const calUrl='https://nfs.faireconomy.media/ff_calendar_thisweek.json';
-    const calProxies=[
-      {p:'https://corsproxy.io/?url=',         fn:d=>d},
-      {p:'https://api.allorigins.win/get?url=', fn:d=>d.contents?JSON.parse(d.contents):d},
-      {p:'https://corsproxy.org/?',             fn:d=>d}
-    ];
+    // Cache kalendarz w sessionStorage — max 30 min żeby nie hammować proxy
+    const calCacheKey='cal_cache', calCacheTime='cal_cache_t';
+    const calCached=sessionStorage.getItem(calCacheKey);
+    const calCachedT=parseInt(sessionStorage.getItem(calCacheTime)||'0');
     let events=null;
-    for(const{p,fn}of calProxies){
-      try{
-        const r=await fetch(p+encodeURIComponent(calUrl),{signal:AbortSignal.timeout(6000)});
-        events=fn(await r.json());
-        if(Array.isArray(events))break;
-        events=null;
-      }catch(e){console.warn('Cal proxy failed:',p);}
+    if(calCached&&Date.now()-calCachedT<30*60*1000){
+      try{events=JSON.parse(calCached);}catch(e){}
+    }
+    if(!events){
+      const calProxies=[
+        {p:'https://api.allorigins.win/get?url=', fn:d=>d.contents?JSON.parse(d.contents):d},
+        {p:'https://thingproxy.freeboard.io/fetch/', fn:d=>d},
+        {p:'https://corsproxy.io/?url=',         fn:d=>d},
+        {p:'https://proxy.cors.sh/', fn:d=>d}
+      ];
+      for(const{p,fn}of calProxies){
+        try{
+          const r=await fetch(p+encodeURIComponent(calUrl),{signal:AbortSignal.timeout(6000)});
+          const raw=await r.json();
+          const parsed=fn(raw);
+          if(Array.isArray(parsed)){events=parsed;break;}
+        }catch(e){console.warn('Cal proxy failed:',p);}
+      }
+      if(events){
+        try{sessionStorage.setItem(calCacheKey,JSON.stringify(events));sessionStorage.setItem(calCacheTime,Date.now().toString());}catch(e){}
+      }
     }
     if(!events)throw new Error('Wszystkie proxy kalendarza zawiodly');
     const todayStr=new Date().toISOString().split('T')[0];
