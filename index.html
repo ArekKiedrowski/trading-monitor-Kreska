@@ -332,7 +332,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 const INSTRUMENTS=[
   // ── TRADING ──────────────────────────────────────────────────
   {key:'us500', name:'US500',   sym:'ES=F',    src:'yahoo', sl:20,    tp:40,    dec:1, lot:0.05, rsiOB:70, rsiOS:30, atrPctMin:0.15, adxRange:20, adxTrend:25, atrSlMult:0.8,  atrTpMult:2.0, srBuffer:0.0, scalpAtrMax:25,    scalpLot:0.03, role:'trading', profile:'orb'},
-  {key:'btc',   name:'BTC/USD', sym:'BTC-USD',  src:'yahoo', sl:500,   tp:1500,  dec:0, lot:0.001,rsiOB:70, rsiOS:30, atrPctMin:0.50, adxRange:18, adxTrend:25, atrSlMult:0.8,  atrTpMult:2.0, srBuffer:0.0, scalpAtrMax:3000,  scalpLot:0.001,role:'trading', profile:'btc'},
+  {key:'btc',   name:'BTC/USD', sym:'BTC=F',  src:'yahoo', sl:500,   tp:1500,  dec:0, lot:0.001,rsiOB:70, rsiOS:30, atrPctMin:0.50, adxRange:18, adxTrend:25, atrSlMult:0.8,  atrTpMult:2.0, srBuffer:0.0, scalpAtrMax:3000,  scalpLot:0.001,role:'trading', profile:'btc'},
   {key:'gold',  name:'GOLD',    sym:'XAUUSD=X', src:'yahoo', sl:25,    tp:50,    dec:1, lot:0.05, rsiOB:68, rsiOS:32, atrPctMin:0.20, adxRange:20, adxTrend:25, atrSlMult:1.0,  atrTpMult:2.2, srBuffer:0.3, scalpAtrMax:18,    scalpLot:0.03, role:'trading', profile:'mean_reversion'},
   {key:'eurusd',name:'EUR/USD', sym:'EURUSD=X', src:'yahoo', sl:0.0015,tp:0.003, dec:5, lot:0.05, rsiOB:65, rsiOS:35, atrPctMin:0.10, adxRange:18, adxTrend:25, atrSlMult:0.7,  atrTpMult:1.8, srBuffer:0.0, scalpAtrMax:0.001, scalpLot:0.03, role:'trading', profile:'fade'},
   // ── FLOW (tylko cena, bez sygnałów) ──────────────────────────
@@ -809,7 +809,7 @@ async function loadVIX(){
 async function loadCOT(){
   const SYMS={
     us500:{sym:'ES=F',label:'US500'},
-    btc:{sym:'BTC-USD',label:'BTC'},
+    btc:{sym:'BTC=F',label:'BTC'},
     gold:{sym:'XAUUSD=X',label:'GOLD'},
     eurusd:{sym:'EURUSD=X',label:'EUR/USD'}
   };
