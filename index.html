@@ -1203,6 +1203,14 @@ async function scan(){
         sl=parseFloat(sl.toFixed(instr.dec));
         tp1=parseFloat(tp1.toFixed(instr.dec));
         tp2=parseFloat(tp2.toFixed(instr.dec));
+        const btcMapped=mapPlanToBroker(instr.key,entry,sl,tp1,tp2,price);
+        const btcWatchMapped=mapPlanToBroker(instr.key,watchLevel,sl,tp1,tp2,price);
+        watchLevel=btcWatchMapped.entry;
+        entry=btcMapped.entry;
+        sl=btcMapped.sl;
+        tp1=btcMapped.tp1;
+        tp2=btcMapped.tp2;
+        const btcBrokerNow=btcMapped.brokerPrice;
         const btcStateCls=isActive?'state-active':'state-forming';
         const btcScoreColor=btcScore.total>=8?'var(--green)':btcScore.total>=6?'var(--amber)':'var(--red)';
 
@@ -1230,7 +1238,7 @@ async function scan(){
             `<div style="font-size:12px;color:var(--muted2);margin-top:4px">${btcScore.structure.label} · Tryb: ${h1.regime} · ${btcScore.decision}</div>`+
             `<div style="font-size:17px;font-weight:600;color:var(--amber);margin-top:6px">Obserwuj: ${watchLevel}</div>`+
             `<div style="font-size:14px;margin-top:6px">Entry <strong>${entry}</strong> · SL <span style="color:var(--red)">${sl}</span> · TP1 <span style="color:var(--amber)">${tp1}</span> · TP2 <span style="color:var(--green)">${tp2}</span></div>`+
-            `<div style="font-size:12px;color:var(--muted2);margin-top:6px">Czekam na: utrzymanie failed breakout i potwierdzenie ruchu zgodnie z ${btcDir} bias</div>`+
+            `<div style="font-size:12px;color:var(--muted2);margin-top:6px">Czekam na: utrzymanie failed breakout i potwierdzenie ruchu zgodnie z ${btcDir} bias</div><div style="font-size:11px;color:var(--muted);margin-top:4px">XTB cena orientacyjna: ${btcBrokerNow}</div>`+
           `</div>`;
 
         if(isActive || isForming){
