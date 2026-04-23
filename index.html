@@ -1179,39 +1179,107 @@ async function scan(){
         const ethChg=mktCtx.ethChg!==undefined?mktCtx.ethChg:null;
         const btcScore=calcBTCScore(h1,ethChg);
         const rl=regimeLabel(h1.regime||'TRANSITION');
-        // Render BTC SCORE card
-        const isActive=btcScore.total>=6&&btcScore.structure.score>0;
-        const isForming=btcScore.total>=4&&btcScore.structure.score>0&&!isActive;
-        if(isActive){
-          actives++;
-          setBadge(instr.key,btcScore.sizeMult===1?'b-active-long':'b-forming','BTC '+btcScore.total+'/10');
-          setCard(instr.key,'sig-active');
-        } else if(isForming){
-          forming++;
-          setBadge(instr.key,'b-forming','BTC SCORE '+btcScore.total);
-          setCard(instr.key,'sig-forming');
-        } else {
+
+        // ───────────────── BTC ROUTING ─────────────────
+        // 1) brak struktury → brak setupu
+        if(!btcScore || btcScore.structure.score===0 || !btcScore.structure.dir){
           setBadge(instr.key,'b-wait','brak setupu');
           setCard(instr.key,'');
+          document.getElementById('body-btc').innerHTML='';
+          continue;
         }
-        document.getElementById('body-btc').innerHTML=
-          '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">'+
-          '<div style="font-size:28px;font-weight:800;color:'+(btcScore.total>=8?'var(--green)':btcScore.total>=6?'var(--amber)':'var(--red)')+'">'+btcScore.total+'<span style="font-size:14px;color:var(--muted)">/10</span></div>'+
-          '<div><div style="font-size:12px;font-weight:600;color:'+rl.cls.replace('ctx-','var(--')+'">Tryb: '+h1.regime+'</div>'+
-          '<div style="font-size:11px;color:var(--muted2)">'+btcScore.structure.label+(btcScore.structure.dir?' → '+btcScore.structure.dir:'')+'</div></div>'+
-          '<div style="margin-left:auto;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600" class="'+btcScore.decisionCls+'">'+btcScore.decision+'</div>'+
-          '</div>'+
-          '<div class="inds">'+
-          '<div class="ind"><div class="ind-l">Struktura</div><div class="ind-v">'+btcScore.structure.score+'/3</div></div>'+
-          '<div class="ind"><div class="ind-l">Lokacja</div><div class="ind-v">'+btcScore.locationScore+'/2</div></div>'+
-          '<div class="ind"><div class="ind-l">Regime</div><div class="ind-v">'+btcScore.regimeScore+'/2</div></div>'+
-          '<div class="ind"><div class="ind-l">Mom+Flow+Vol</div><div class="ind-v">'+(btcScore.momentumScore+btcScore.flowScore+btcScore.volScore)+'/3</div></div>'+
-          '</div>'+
-          (btcScore.structure.score===0?'<div style="font-size:13px;color:var(--red);padding:8px;background:var(--rbg);border-radius:6px">❌ Brak struktury — NO TRADE</div>':'');
-        if(isActive||isForming){
-          addLog('BTC',btcScore.structure.dir==='LONG'?'active':'short','Score '+btcScore.total+'/10 · '+btcScore.structure.label+' · '+btcScore.decision);
+
+        const btcIsShort = btcScore.structure.dir==='SHORT';
+        const btcDir = btcIsShort ? 'SHORT' : 'LONG';
+        const atrBTC = h1.atrVal || 500;
+
+        const recentHighBTC = h1.highs && h1.highs.length ? Math.max(...h1.highs.slice(-8)) : price + atrBTC;
+        const recentLowBTC  = h1.lows  && h1.lows.length  ? Math.min(...h1.lows.slice(-8))  : price - atrBTC;
+
+        let watchLevelBTC = btcIsShort ? recentHighBTC : recentLowBTC;
+        let entryBTC = watchLevelBTC;
+
+        let slBTC  = btcIsShort ? entryBTC + atrBTC*instr.atrSlMult : entryBTC - atrBTC*instr.atrSlMult;
+        let tp1BTC = btcIsShort ? entryBTC - atrBTC*1.0            : entryBTC + atrBTC*1.0;
+        let tp2BTC = btcIsShort ? entryBTC - atrBTC*instr.atrTpMult : entryBTC + atrBTC*instr.atrTpMult;
+
+        if(Math.abs(price-entryBTC) > atrBTC*0.6){
+          entryBTC = price;
+          slBTC  = btcIsShort ? entryBTC + atrBTC*instr.atrSlMult : entryBTC - atrBTC*instr.atrSlMult;
+          tp1BTC = btcIsShort ? entryBTC - atrBTC*1.0            : entryBTC + atrBTC*1.0;
+          tp2BTC = btcIsShort ? entryBTC - atrBTC*instr.atrTpMult : entryBTC + atrBTC*instr.atrTpMult;
         }
-        continue; // skip standard signal logic for BTC
+
+        watchLevelBTC = parseFloat(watchLevelBTC.toFixed(instr.dec));
+        entryBTC      = parseFloat(entryBTC.toFixed(instr.dec));
+        slBTC         = parseFloat(slBTC.toFixed(instr.dec));
+        tp1BTC        = parseFloat(tp1BTC.toFixed(instr.dec));
+        tp2BTC        = parseFloat(tp2BTC.toFixed(instr.dec));
+
+        const scoreColorBTC = btcScore.total>=8?'var(--green)':btcScore.total>=6?'var(--amber)':'var(--red)';
+
+        // 2) FORMING (4–5/10) → pełny plan, bez lotu
+        if(btcScore.total>=4 && btcScore.total<=5){
+          forming++;
+          setBadge(instr.key,'b-forming',`BTC ${btcScore.total}/10`);
+          setCard(instr.key,'sig-forming');
+
+          document.getElementById('body-btc').innerHTML=
+            `<div class="score-row">`+
+              `<div class="score-bar-wrap"><div class="score-bar-fill" style="width:${btcScore.total*10}%;background:${scoreColorBTC}"></div></div>`+
+              `<span class="score-val" style="color:${scoreColorBTC}">${btcScore.total}</span>`+
+              `<span class="score-state state-forming">FORMING</span>`+
+            `</div>`+
+            `<div class="forming-box">`+
+              `<div style="font-size:22px;font-weight:800;color:${btcIsShort?'var(--red)':'var(--green)'}">${btcDir} ${btcIsShort?'▼':'▲'}</div>`+
+              `<div style="font-size:12px;color:var(--muted2);margin-top:4px">${btcScore.structure.label} · Tryb: ${h1.regime}</div>`+
+              `<div style="font-size:17px;font-weight:600;color:var(--amber);margin-top:6px">Obserwuj: ${watchLevelBTC}</div>`+
+              `<div style="font-size:14px;margin-top:6px">Entry <strong>${entryBTC}</strong> · SL <span style="color:var(--red)">${slBTC}</span> · TP1 <span style="color:var(--amber)">${tp1BTC}</span> · TP2 <span style="color:var(--green)">${tp2BTC}</span></div>`+
+              `<div style="font-size:12px;color:var(--muted2);margin-top:6px">Czekam na: domknięcie brakujących warunków (trend/momentum/flow)</div>`+
+            `</div>`;
+
+          addLog('BTC', btcIsShort?'forming':'forming', `FORMING ${btcScore.total}/10 · ${btcScore.structure.label}`);
+          continue;
+        }
+
+        // 3) AKTYWNY PLAN 6–9/10 → Entry/SL/TP1/TP2 + LOT
+        if(btcScore.total>=6){
+          actives++;
+
+          const capital = parseFloat(document.getElementById('capital').value||'10000') || 10000;
+          const riskPLN = Math.round(capital*0.02); // 1R ≈ 2% lub 200 PLN
+          const btcPlnRate = 4000; // TODO: podmienić na dynamiczny BTCPLN
+
+          const dist = Math.abs(entryBTC-slBTC) || 1;
+          const valuePerUsdPerBtc = btcPlnRate; // 1 USD ruchu ≈ btcPlnRate PLN na 1 BTC
+          const rawLot = riskPLN / (dist * valuePerUsdPerBtc);
+          const step = 0.001;
+          const minLot = 0.001;
+          const lotBTC = Math.max(minLot, Math.floor(rawLot/step)*step);
+
+          const rrBTC = Math.abs((tp2BTC-entryBTC)/Math.max(0.0001,Math.abs(slBTC-entryBTC))).toFixed(1);
+
+          setBadge(instr.key, btcIsShort?'b-active-short':'b-active-long', `${btcDir} ${btcScore.total}/10`);
+          setCard(instr.key, `sig-active${btcIsShort?' short':''}`);
+
+          document.getElementById('body-btc').innerHTML=
+            `<div class="score-row">`+
+              `<div class="score-bar-wrap"><div class="score-bar-fill" style="width:${btcScore.total*10}%;background:${scoreColorBTC}"></div></div>`+
+              `<span class="score-val" style="color:${scoreColorBTC}">${btcScore.total}</span>`+
+              `<span class="score-state state-active">ACTIVE</span>`+
+            `</div>`+
+            `<div class="forming-box">`+
+              `<div style="font-size:22px;font-weight:800;color:${btcIsShort?'var(--red)':'var(--green)'}">${btcDir} ${btcIsShort?'▼':'▲'}</div>`+
+              `<div style="font-size:12px;color:var(--muted2);margin-top:4px">${btcScore.structure.label} · Tryb: ${h1.regime} · ${btcScore.total>=8?'TRADE FULL (1R)':'TRADE SMALL (0.5R)'}</div>`+
+              `<div style="font-size:17px;font-weight:600;color:var(--amber);margin-top:6px">Obserwuj: ${watchLevelBTC}</div>`+
+              `<div style="font-size:14px;margin-top:6px">Entry <strong>${entryBTC}</strong> · SL <span style="color:var(--red)">${slBTC}</span> · TP1 <span style="color:var(--amber)">${tp1BTC}</span> · TP2 <span style="color:var(--green)">${tp2BTC}</span></div>`+
+              `<div style="font-size:13px;margin-top:6px">Lot: <strong>${lotBTC.toFixed(3)} BTC</strong> (1R ≈ ${riskPLN} PLN, RR ≈ ${rrBTC})</div>`+
+            `</div>`;
+
+          addLog('BTC', btcIsShort?'short':'active', `Score ${btcScore.total}/10 · ${btcScore.structure.label} · Entry ${entryBTC} · TP1 ${tp1BTC} · TP2 ${tp2BTC} · Lot ${lotBTC.toFixed(3)} BTC`);
+          continue;
+        }
+
       }
 
       if(h1.dir==='LONG'||h1.dir==='SHORT'){
