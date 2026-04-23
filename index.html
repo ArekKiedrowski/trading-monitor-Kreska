@@ -1179,37 +1179,62 @@ async function scan(){
         const ethChg=mktCtx.ethChg!==undefined?mktCtx.ethChg:null;
         const btcScore=calcBTCScore(h1,ethChg);
         const rl=regimeLabel(h1.regime||'TRANSITION');
-        // Render BTC SCORE card
-        const isActive=btcScore.total>=6&&btcScore.structure.score>0;
-        const isForming=btcScore.total>=4&&btcScore.structure.score>0&&!isActive;
+        // Render BTC as clear trade plan
+        const isActive=btcScore.total>=6 && btcScore.structure.score>0;
+        const isForming=btcScore.total>=4 && btcScore.structure.score>0 && !isActive;
+        const btcIsShort=btcScore.structure.dir==='SHORT';
+        const btcDir=btcIsShort?'SHORT':'LONG';
+        const atr=h1.atrVal||500;
+        const recentHigh=h1.highs&&h1.highs.length?Math.max(...h1.highs.slice(-8)):price+atr;
+        const recentLow=h1.lows&&h1.lows.length?Math.min(...h1.lows.slice(-8)):price-atr;
+        let watchLevel=btcIsShort?recentHigh:recentLow;
+        let entry=watchLevel;
+        let sl=btcIsShort ? entry + atr*instr.atrSlMult : entry - atr*instr.atrSlMult;
+        let tp1=btcIsShort ? entry - atr*1.0 : entry + atr*1.0;
+        let tp2=btcIsShort ? entry - atr*instr.atrTpMult : entry + atr*instr.atrTpMult;
+        if(Math.abs(price-entry) > atr*0.6){
+          entry=price;
+          sl=btcIsShort ? entry + atr*instr.atrSlMult : entry - atr*instr.atrSlMult;
+          tp1=btcIsShort ? entry - atr*1.0 : entry + atr*1.0;
+          tp2=btcIsShort ? entry - atr*instr.atrTpMult : entry + atr*instr.atrTpMult;
+        }
+        watchLevel=parseFloat(watchLevel.toFixed(instr.dec));
+        entry=parseFloat(entry.toFixed(instr.dec));
+        sl=parseFloat(sl.toFixed(instr.dec));
+        tp1=parseFloat(tp1.toFixed(instr.dec));
+        tp2=parseFloat(tp2.toFixed(instr.dec));
+        const btcStateCls=isActive?'state-active':'state-forming';
+        const btcScoreColor=btcScore.total>=8?'var(--green)':btcScore.total>=6?'var(--amber)':'var(--red)';
+
         if(isActive){
           actives++;
-          setBadge(instr.key,btcScore.sizeMult===1?'b-active-long':'b-forming','BTC '+btcScore.total+'/10');
-          setCard(instr.key,'sig-active');
+          setBadge(instr.key, btcIsShort?'b-active-short':'b-active-long', `${btcDir} ${btcScore.total}/10`);
+          setCard(instr.key, `sig-active${btcIsShort?' short':''}`);
         } else if(isForming){
           forming++;
-          setBadge(instr.key,'b-forming','BTC SCORE '+btcScore.total);
-          setCard(instr.key,'sig-forming');
+          setBadge(instr.key, 'b-forming', `BTC ${btcScore.total}/10`);
+          setCard(instr.key, 'sig-forming');
         } else {
-          setBadge(instr.key,'b-wait','brak setupu');
-          setCard(instr.key,'');
+          setBadge(instr.key, 'b-wait', 'brak setupu');
+          setCard(instr.key, '');
         }
+
         document.getElementById('body-btc').innerHTML=
-          '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">'+
-          '<div style="font-size:28px;font-weight:800;color:'+(btcScore.total>=8?'var(--green)':btcScore.total>=6?'var(--amber)':'var(--red)')+'">'+btcScore.total+'<span style="font-size:14px;color:var(--muted)">/10</span></div>'+
-          '<div><div style="font-size:12px;font-weight:600;color:'+rl.cls.replace('ctx-','var(--')+'">Tryb: '+h1.regime+'</div>'+
-          '<div style="font-size:11px;color:var(--muted2)">'+btcScore.structure.label+(btcScore.structure.dir?' → '+btcScore.structure.dir:'')+'</div></div>'+
-          '<div style="margin-left:auto;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600" class="'+btcScore.decisionCls+'">'+btcScore.decision+'</div>'+
-          '</div>'+
-          '<div class="inds">'+
-          '<div class="ind"><div class="ind-l">Struktura</div><div class="ind-v">'+btcScore.structure.score+'/3</div></div>'+
-          '<div class="ind"><div class="ind-l">Lokacja</div><div class="ind-v">'+btcScore.locationScore+'/2</div></div>'+
-          '<div class="ind"><div class="ind-l">Regime</div><div class="ind-v">'+btcScore.regimeScore+'/2</div></div>'+
-          '<div class="ind"><div class="ind-l">Mom+Flow+Vol</div><div class="ind-v">'+(btcScore.momentumScore+btcScore.flowScore+btcScore.volScore)+'/3</div></div>'+
-          '</div>'+
-          (btcScore.structure.score===0?'<div style="font-size:13px;color:var(--red);padding:8px;background:var(--rbg);border-radius:6px">❌ Brak struktury — NO TRADE</div>':'');
-        if(isActive||isForming){
-          addLog('BTC',btcScore.structure.dir==='LONG'?'active':'short','Score '+btcScore.total+'/10 · '+btcScore.structure.label+' · '+btcScore.decision);
+          `<div class="score-row">`+
+            `<div class="score-bar-wrap"><div class="score-bar-fill" style="width:${btcScore.total*10}%;background:${btcScoreColor}"></div></div>`+
+            `<span class="score-val" style="color:${btcScoreColor}">${btcScore.total}</span>`+
+            `<span class="score-state ${btcStateCls}">${isActive?'ACTIVE':'FORMING'}</span>`+
+          `</div>`+
+          `<div class="forming-box">`+
+            `<div style="font-size:22px;font-weight:800;color:${btcIsShort?'var(--red)':'var(--green)'}">${btcDir} ${btcIsShort?'▼':'▲'}</div>`+
+            `<div style="font-size:12px;color:var(--muted2);margin-top:4px">${btcScore.structure.label} · Tryb: ${h1.regime} · ${btcScore.decision}</div>`+
+            `<div style="font-size:17px;font-weight:600;color:var(--amber);margin-top:6px">Obserwuj: ${watchLevel}</div>`+
+            `<div style="font-size:14px;margin-top:6px">Entry <strong>${entry}</strong> · SL <span style="color:var(--red)">${sl}</span> · TP1 <span style="color:var(--amber)">${tp1}</span> · TP2 <span style="color:var(--green)">${tp2}</span></div>`+
+            `<div style="font-size:12px;color:var(--muted2);margin-top:6px">Czekam na: utrzymanie failed breakout i potwierdzenie ruchu zgodnie z ${btcDir} bias</div>`+
+          `</div>`;
+
+        if(isActive || isForming){
+          addLog('BTC', btcIsShort?'short':'active', `Score ${btcScore.total}/10 · Entry ${entry} · TP1 ${tp1} · TP2 ${tp2}`);
         }
         continue; // skip standard signal logic for BTC
       }
