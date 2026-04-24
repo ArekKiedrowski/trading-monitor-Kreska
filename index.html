@@ -2,11 +2,11 @@
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <title>HYPER-MONITOR V1.61 | Trade Sequence Edition</title>
+    <title>HYPER-MONITOR V1.61 | Quant OS</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root { --bg: #0a0a0a; --panel: #111; --green: #00ff88; --red: #ff4444; --text: #bbb; --border: #222; }
-        body { background: var(--bg); color: var(--text); font-family: 'Consolas', monospace; margin: 0; padding: 20px; line-height: 1.4; }
+        body { background: var(--bg); color: var(--text); font-family: 'Consolas', monospace; margin: 0; padding: 20px; }
         .grid { display: grid; grid-template-columns: 380px 1fr; gap: 20px; max-width: 1600px; margin: auto; }
         .hud-panel { background: var(--panel); border: 1px solid var(--border); padding: 15px; border-radius: 4px; margin-bottom: 20px; }
         h3 { margin: 0 0 15px 0; font-size: 11px; letter-spacing: 1px; color: #555; text-transform: uppercase; border-bottom: 1px solid var(--border); padding-bottom: 5px; }
@@ -17,14 +17,15 @@
         .kpi-card span { display: block; font-size: 9px; color: #444; margin-bottom: 4px; }
         .kpi-card strong { font-size: 16px; color: #fff; }
 
-        /* Exposure & Signals */
-        .exposure-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 10px; padding: 5px; background: #000; border-left: 2px solid var(--green); }
-        .signal-item { font-size: 11px; padding: 6px 0; border-bottom: 1px solid #1a1a1a; display: flex; justify-content: space-between; }
-        .tag { font-size: 9px; padding: 2px 4px; border-radius: 2px; }
-        .tag-real { background: rgba(0,255,136,0.1); color: var(--green); border: 1px solid var(--green); }
-        .tag-ghost { background: rgba(85,85,85,0.1); color: #555; border: 1px solid #555; }
+        /* Signal List */
+        .signal-item { font-size: 11px; padding: 8px 0; border-bottom: 1px solid #1a1a1a; display: flex; justify-content: space-between; align-items: center; }
+        .tag { font-size: 9px; padding: 2px 4px; border-radius: 2px; text-transform: uppercase; border: 1px solid transparent; }
+        .tag-real { background: rgba(0,255,136,0.1); color: var(--green); border-color: var(--green); }
+        .tag-ghost { background: rgba(85,85,85,0.1); color: #555; border-color: #555; }
 
-        #chart-wrap { height: 450px; width: 100%; margin-top: 10px; }
+        #chart-wrap { height: 450px; width: 100%; }
+        button { background: #1a1a1a; color: #666; border: 1px solid #333; padding: 5px 10px; cursor: pointer; font-family: inherit; font-size: 10px; }
+        button:hover { color: #fff; border-color: #555; }
     </style>
 </head>
 <body>
@@ -33,8 +34,8 @@
     <div class="sidebar">
         <div class="hud-panel">
             <h3>ACTIVE EXPOSURE</h3>
-            <div id="active-stats"></div>
-            <div id="active-list" style="margin-top:15px;"></div>
+            <div id="active-stats" style="margin-bottom:10px;"></div>
+            <div id="active-list"></div>
         </div>
 
         <div class="hud-panel">
@@ -42,7 +43,9 @@
             <div id="signal-feed"></div>
         </div>
 
-        <button onclick="Journal.clearAll()" style="background:#200; color:#f44; border:1px solid #400; width:100%; padding:8px; cursor:pointer; font-family:inherit; font-size:10px;">RESET DATABASE</button>
+        <div style="text-align: center; opacity: 0.3;">
+            <button onclick="Journal.clearAll()">RESET LOCAL DATABASE</button>
+        </div>
     </div>
 
     <div class="main">
@@ -58,24 +61,52 @@
 
 <script>
 /**
- * CORE MODULES
+ * 1. KONFIGURACJA TELEGRAMA
+ * Podmień poniższe dane na swoje.
  */
+const Telegram = {
+    token: "TU_WKLEJ_SWOJ_TOKEN", 
+    chatId: "TU_WKLEJ_SWOJ_CHAT_ID",
 
+    async send(msg) {
+        if(this.token.includes("TU_WKLEJ")) return; // Nie wysyłaj jeśli nie ustawiono
+        try {
+            const url = `https://api.telegram.org/bot${this.token}/sendMessage?chat_id=${this.chatId}&text=${encodeURIComponent(msg)}&parse_mode=Markdown`;
+            await fetch(url);
+        } catch (e) { console.error("Telegram Error:", e); }
+    }
+};
+
+/**
+ * 2. JOURNAL & DATABASE
+ */
 const Journal = {
     events: JSON.parse(localStorage.getItem('quant_v16_log') || '[]'),
     processed: new Set(JSON.parse(localStorage.getItem('quant_v16_ids') || '[]')),
 
     addEvent(type, data) {
-        const e = { id: Date.now()+Math.random(), type, timestamp: new Date(), ...data };
+        const e = { 
+            id: Date.now() + Math.random(), 
+            type, 
+            timestamp: new Date().toISOString(), 
+            ...data 
+        };
         this.events.push(e);
         if(data.tradeId) this.processed.add(data.tradeId);
-        this.sync();
-        return e;
-    },
-
-    sync() {
+        
         localStorage.setItem('quant_v16_log', JSON.stringify(this.events));
         localStorage.setItem('quant_v16_ids', JSON.stringify([...this.processed]));
+
+        // --- LOGIKA POWIADOMIEŃ TELEGRAM ---
+        if (type === 'TRADE_OPEN' && !data.isGhost) {
+            Telegram.send(`🚀 *NOWY SETUP: REAL*\n🆔 ID: \`${data.tradeId}\`\n🛠 Silnik: ${data.engine}\n\n👉 Sprawdź parametry i otwórz XTB!`);
+        }
+        if (type === 'TRADE_CLOSE') {
+            const icon = data.resultR > 0 ? "✅" : "❌";
+            Telegram.send(`${icon} *TRADE ZAMKNIĘTY*\n🆔 ID: \`${data.tradeId}\`\n💰 Wynik: *${data.resultR} R*`);
+        }
+
+        return e;
     },
 
     getClosedSummaries() {
@@ -98,16 +129,19 @@ const Journal = {
         return trades;
     },
 
-    clearAll() { if(confirm("Clear database?")) { localStorage.clear(); location.reload(); } }
+    clearAll() { if(confirm("Czy na pewno wyczyścić całą bazę danych?")) { localStorage.clear(); location.reload(); } }
 };
 
+/**
+ * 3. ANALYTICS ENGINE
+ */
 const AnalyticsEngine = {
     getCurve(mode = 'REAL') {
         const data = Journal.getClosedSummaries().sort((a,b) => new Date(a.closedAt) - new Date(b.closedAt));
         let cum = 0;
         const pts = [{ x: 0, y: 0 }];
         
-        data.forEach((t, i) => {
+        data.forEach((t) => {
             const match = (mode === 'REAL') ? !t.isGhost : true;
             if(match) {
                 cum += t.resultR;
@@ -134,6 +168,9 @@ const AnalyticsEngine = {
     }
 };
 
+/**
+ * 4. UI RENDERER
+ */
 const UI = {
     chart: null,
     init() {
@@ -142,17 +179,17 @@ const UI = {
             type: 'line',
             data: {
                 datasets: [
-                    { label: 'REAL (R)', data: [], borderColor: '#00ff88', backgroundColor: 'rgba(0,255,136,0.05)', fill: true, tension: 0.1 },
-                    { label: 'GHOST (R)', data: [], borderColor: '#444', borderDash: [5,5], fill: false, tension: 0.1 }
+                    { label: 'REAL EQUITY (R Sequence)', data: [], borderColor: '#00ff88', backgroundColor: 'rgba(0,255,136,0.05)', fill: true, tension: 0.1 },
+                    { label: 'GHOST BASELINE (R Sequence)', data: [], borderColor: '#444', borderDash: [5,5], fill: false, tension: 0.1 }
                 ]
             },
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { type: 'linear', title: { display: true, text: 'TRADE SEQUENCE index' }, grid: { color: '#1a1a1a' } },
-                    y: { grid: { color: '#1a1a1a' } }
+                    x: { type: 'linear', title: { display: true, text: 'TRADE SEQUENCE INDEX', color: '#444' }, grid: { color: '#1a1a1a' } },
+                    y: { grid: { color: '#1a1a1a' }, title: { display: true, text: 'CUMULATIVE R', color: '#444' } }
                 },
-                plugins: { legend: { position: 'top', align: 'end' } }
+                plugins: { legend: { position: 'top', align: 'end', labels: { color: '#888', font: { size: 10 } } } }
             }
         });
     },
@@ -168,54 +205,72 @@ const UI = {
             <div class="kpi-card"><span>EXPECTANCY</span><strong>${k.exp}R</strong></div>
             <div class="kpi-card"><span>WIN RATE</span><strong>${k.wr}</strong></div>
             <div class="kpi-card"><span>SAMPLES</span><strong>${k.vol}</strong></div>
-        ` : '<div style="color:#444">AWAITING STATS...</div>';
+        ` : '<div style="color:#444; padding: 10px;">AWAITING DATA SAMPLES...</div>';
     }
 };
 
 /**
- * RUNTIME (Simulation & Loop)
+ * 5. RUNTIME (Loop & Simulation)
  */
 const Runtime = {
     tick() {
-        const opens = Journal.events.filter(e => e.type === 'TRADE_OPEN' && !Journal.events.some(c => c.type === 'TRADE_CLOSE' && c.tradeId === e.tradeId));
+        const allEvents = Journal.events;
+        const opens = allEvents.filter(e => e.type === 'TRADE_OPEN' && !allEvents.some(c => c.type === 'TRADE_CLOSE' && c.tradeId === e.tradeId));
         
-        // 1. Process Closures
+        // Symulacja zamykania (tylko do testów, w realu robi to OutcomeTracker)
         opens.forEach(t => {
-            if(Math.random() > 0.85) {
-                Journal.addEvent('TRADE_CLOSE', { tradeId: t.tradeId, resultR: Number((Math.random()*4-1.3).toFixed(2)) });
+            if(Math.random() > 0.9) {
+                Journal.addEvent('TRADE_CLOSE', { 
+                    tradeId: t.tradeId, 
+                    resultR: Number((Math.random() * 4 - 1.2).toFixed(2)) 
+                });
             }
         });
 
-        // 2. Spawn New Signals (Simulation)
-        if(Math.random() > 0.7) {
-            const tid = `T-${Math.floor(Math.random()*10000)}`;
-            Journal.addEvent('TRADE_OPEN', { tradeId: tid, engine: 'PO3_V1', isGhost: Math.random() > 0.6 });
+        // Symulacja nowych sygnałów (tylko do testów, w realu robi to SignalBridge)
+        if(Math.random() > 0.8) {
+            const tid = `T-${Math.floor(Math.random()*9000 + 1000)}`;
+            Journal.addEvent('TRADE_OPEN', { 
+                tradeId: tid, 
+                engine: 'PO3_V1', 
+                isGhost: Math.random() > 0.6 
+            });
         }
 
-        // 3. UI Update
         this.renderActive(opens);
+        this.renderFeed();
         UI.refresh();
     },
 
     renderActive(opens) {
-        const real = opens.filter(o => !o.isGhost).length;
+        const realCount = opens.filter(o => !o.isGhost).length;
         document.getElementById('active-stats').innerHTML = `
-            <div class="exposure-row">
-                <span>REAL EXPOSURE SLOT:</span><strong>${real} / 5</strong>
+            <div style="font-size:11px; color:#666; background:#000; padding:5px; border-left:2px solid var(--green);">
+                REAL EXPOSURE: <strong>${realCount} / 5 SLOTS</strong>
             </div>
         `;
         document.getElementById('active-list').innerHTML = opens.map(o => `
             <div class="signal-item">
-                <span>${o.tradeId} [${o.engine}]</span>
-                <span class="tag ${o.isGhost ? 'tag-ghost' : 'tag-real'}">${o.isGhost ? 'GHOST' : 'ACTIVE'}</span>
+                <span>${o.tradeId} <small style="color:#555">(${o.engine})</small></span>
+                <span class="tag ${o.isGhost ? 'tag-ghost' : 'tag-real'}">${o.isGhost ? 'ghost' : 'active'}</span>
+            </div>
+        `).join('');
+    },
+
+    renderFeed() {
+        const latest = Journal.events.filter(e => e.type === 'TRADE_OPEN').reverse().slice(0, 5);
+        document.getElementById('signal-feed').innerHTML = latest.map(l => `
+            <div class="signal-item">
+                <span>${l.tradeId}</span>
+                <span style="color:#555">${new Date(l.timestamp).toLocaleTimeString()}</span>
             </div>
         `).join('');
     }
 };
 
-// INITIALIZE
+// START SYSTEM
 UI.init();
-setInterval(() => Runtime.tick(), 2000);
+setInterval(() => Runtime.tick(), 3000);
 Runtime.tick();
 
 </script>
