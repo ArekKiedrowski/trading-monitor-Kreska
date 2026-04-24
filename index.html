@@ -1,41 +1,96 @@
-function updateTimer() {
-    if (!activeTrade) return;
-
-    const elapsed = Math.floor((Date.now() - activeTrade.start) / 1000);
-    const rem = 1800 - elapsed;
-
-    const el = document.getElementById('at-timer-val');
-    const advice = document.getElementById('at-advice');
-    const timerWrap = el.parentElement;
-
-    if (rem <= 0) {
-        el.innerText = "TIME OUT";
-        timerWrap.style.color = 'var(--red)';
-
-        if (advice) {
-            advice.innerHTML = "⚠️ <strong>Brak progresu &gt; 30 min.</strong> Zgodnie z Systemem O: rozważ wyjście lub redukcję.";
-            advice.style.background = 'rgba(239,68,68,0.12)';
-            advice.style.border = '1px solid rgba(239,68,68,0.30)';
-            advice.style.color = '#fca5a5';
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System O — Console PRO</title>
+    <style>
+        :root {
+            --bg: #0a0c10; --card: #12151c; --border: rgba(255,255,255,0.05);
+            --text: #e2e8f0; --muted: #64748b;
+            --green: #10b981; --red: #ef4444; --amber: #f59e0b;
         }
-    } else {
-        const m = Math.floor(rem / 60);
-        const s = rem % 60;
-        el.innerText = `${m}:${s < 10 ? '0' : ''}${s}`;
-        timerWrap.style.color = 'var(--text)';
+        body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; margin: 0; padding: 15px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+        
+        /* Makro Alert */
+        .macro-timer { color: var(--amber); font-weight: 700; font-size: 13px; background: rgba(245,158,11,0.1); padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(245,158,11,0.2); }
 
-        if (advice) {
-            if (rem <= 300) {
-                advice.innerHTML = "⏳ <strong>Kończy się okno przewagi.</strong> Jeśli trade nadal nie daje follow-through, przygotuj redukcję lub wyjście.";
-                advice.style.background = 'rgba(245,158,11,0.10)';
-                advice.style.border = '1px solid rgba(245,158,11,0.25)';
-                advice.style.color = '#fcd34d';
-            } else {
-                advice.innerHTML = "💡 <strong>Trade aktywny.</strong> Monitoruj follow-through i reakcję ceny względem entry / TP1.";
-                advice.style.background = 'rgba(59,130,246,0.10)';
-                advice.style.border = '1px solid rgba(59,130,246,0.25)';
-                advice.style.color = '#93c5fd';
-            }
-        }
-    }
-}
+        /* Signal Card */
+        .signal-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 12px; position: relative; overflow: hidden; }
+        .signal-card.class-A { border-left: 4px solid var(--green); }
+        .signal-card.class-B { border-left: 4px solid var(--amber); }
+        .signal-card.class-C { border-left: 4px solid var(--muted); opacity: 0.6; }
+
+        .sig-top { display: flex; justify-content: space-between; margin-bottom: 12px; }
+        .instr-name { font-size: 18px; font-weight: 900; letter-spacing: -0.5px; }
+        .timestamp { color: var(--muted); font-size: 11px; font-family: monospace; }
+
+        /* Levels Grid */
+        .levels { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; }
+        .lvl { font-size: 10px; color: var(--muted); text-transform: uppercase; font-weight: 700; }
+        .val { font-size: 14px; color: var(--text); font-weight: 700; margin-top: 2px; font-family: monospace; }
+        
+        .val.tp1 { color: var(--green); }
+        .val.tp2 { color: var(--muted); font-size: 12px; } /* TP2 opcjonalny/szary */
+        .val.sl { color: var(--red); }
+
+        /* Decision Light */
+        .badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; font-weight: 900; }
+        .badge-A { background: var(--green); color: var(--bg); }
+        .badge-B { background: var(--amber); color: var(--bg); }
+        .badge-C { background: var(--muted); color: var(--bg); }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div>
+        <h1 style="font-size: 16px; margin:0;">SYSTEM O <span style="color:var(--muted)">CONSOLE</span></h1>
+    </div>
+    <div class="macro-timer">⚠️ US Core CPI: 47 min</div>
+</div>
+
+<div id="signals-container">
+    <div class="signal-card class-A">
+        <div class="sig-top">
+            <div>
+                <span class="instr-name">US500</span> 
+                <span class="badge badge-A">KLASA A</span>
+            </div>
+            <div class="timestamp">14:22:05 (2m ago)</div>
+        </div>
+        <div class="levels">
+            <div><div class="lvl">ENTRY</div><div class="val">5120.50</div></div>
+            <div><div class="lvl">SL</div><div class="val sl">5110.25</div></div>
+            <div><div class="lvl">TP1 (0.75R)</div><div class="val tp1">5128.25</div></div>
+            <div><div class="lvl">TP2 (Bonus)</div><div class="val tp2">5140.00</div></div>
+        </div>
+    </div>
+
+    <div class="signal-card class-B">
+        <div class="sig-top">
+            <div>
+                <span class="instr-name">NAS100</span> 
+                <span class="badge badge-B">KLASA B</span>
+            </div>
+            <div class="timestamp">14:15:00 (9m ago)</div>
+        </div>
+        <div class="levels">
+            <div><div class="lvl">ENTRY</div><div class="val">18250.0</div></div>
+            <div><div class="lvl">SL</div><div class="val sl">18220.0</div></div>
+            <div><div class="lvl">TP1</div><div class="val tp1">18272.5</div></div>
+            <div><div class="lvl">TP2</div><div class="val tp2">18300.0</div></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Tu będzie Twoja logika fetchująca sygnały z signal-cache.json
+    // Skupiamy się na: 
+    // 1. Obliczaniu wieku sygnału (now Date() - signal.timestamp)
+    // 2. Mapowaniu score (0-100) na Klasy A, B, C
+</script>
+
+</body>
+</html>
