@@ -336,7 +336,7 @@ function detectSetup(closes, highs, lows) {
 // ─── FETCH ────────────────────────────────────────────────────
 async function fetchData(ticker) {
     try {
-        const url = `https://api.allorigins.win/raw?url=https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=5m&range=2d&includePrePost=false`;
+        const url = `https://corsproxy.io/?https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=5m&range=2d&includePrePost=false`;
         const r = await fetch(url);
         const d = await r.json();
         const q = d.chart.result[0].indicators.quote[0];
