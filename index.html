@@ -2219,199 +2219,136 @@ async function runORB() {
 setInterval(()=>{const t=waw();if(orbIsWindow(t))runORB();}, 60000);
 setTimeout(runORB, 2000);
 
-// ─── JOURNAL ENGINE ──────────────────────────────────────────
-const Journal = {
-  events: [],
-  processed: new Set(),
-  _load(){
-    try{this.events=JSON.parse(localStorage.getItem('so_v2_log')||'[]');}catch(e){this.events=[];}
-    try{this.processed=new Set(JSON.parse(localStorage.getItem('so_v2_ids')||'[]'));}catch(e){this.processed=new Set();}
-  },
-  _save(){
-    try{
-      localStorage.setItem('so_v2_log',JSON.stringify(this.events));
-      localStorage.setItem('so_v2_ids',JSON.stringify([...this.processed]));
-    }catch(e){}
-  },
-  addEvent(type,data){
-    const e={id:Date.now()+Math.random(),type,timestamp:new Date().toISOString(),...data};
-    this.events.push(e);
-    if(data.tradeId)this.processed.add(data.tradeId);
-    this._save();
-    return e;
-  },
-  getOpen(){
-    return this.events.filter(e=>
-      e.type==='TRADE_OPEN'&&
-      !this.events.some(c=>c.type==='TRADE_CLOSE'&&c.tradeId===e.tradeId)
-    );
-  },
-  getClosed(){
-    const opens=this.events.filter(e=>e.type==='TRADE_OPEN');
-    const closes=this.events.filter(e=>e.type==='TRADE_CLOSE');
-    const trades=[];
-    opens.forEach(op=>{
-      const cl=closes.find(c=>c.tradeId===op.tradeId);
-      if(cl)trades.push({...op,...cl,openedAt:op.timestamp,closedAt:cl.timestamp,resultR:cl.resultR});
-    });
-    return trades.sort((a,b)=>new Date(a.closedAt)-new Date(b.closedAt));
-  },
-  getKPIs(){
-    const trades=this.getClosed().filter(t=>!t.isGhost);
-    if(trades.length<2)return null;
-    const wins=trades.filter(t=>t.resultR>0);
-    const grossP=wins.reduce((s,t)=>s+t.resultR,0);
-    const grossL=Math.abs(trades.filter(t=>t.resultR<=0).reduce((s,t)=>s+t.resultR,0));
-    return{
-      pf:grossL===0?'∞':(grossP/grossL).toFixed(2),
-      exp:((grossP-grossL)/trades.length).toFixed(2),
-      wr:(wins.length/trades.length*100).toFixed(0),
-      vol:trades.length
-    };
-  },
-  getCurve(mode='REAL'){
-    const data=mode==='REAL'?this.getClosed().filter(t=>!t.isGhost):this.getClosed();
-    let cum=0;const pts=[{x:0,y:0}];
-    data.forEach(t=>{cum+=t.resultR;pts.push({x:pts.length,y:parseFloat(cum.toFixed(2))});});
-    return pts;
-  }
-};
+// ─── JOURNAL ENGINE (clean v2) ───────────────────────────────
+let journal = JSON.parse(localStorage.getItem('trading_journal') || '[]');
+let equityChart = null;
 
-// ─── JOURNAL UI ───────────────────────────────────────────────
-let equityChart=null;
+function journalAdd(isGhost = false) {
+  const dir = document.getElementById('j-dir').value;
+  const instr = document.getElementById('j-instr').value;
+  const entry = parseFloat(document.getElementById('j-entry').value);
+  const exitVal = parseFloat(document.getElementById('j-exit').value);
+  if (!exitVal) return alert('Wpisz wynik (R lub Exit Price)');
+  const trade = {
+    id: Date.now(),
+    date: new Date().toISOString(),
+    instr, dir, isGhost,
+    r: exitVal, // R-multiple (np. 1.5) lub cena exit
+    status: 'closed'
+  };
+  journal.push(trade);
+  saveJournal();
+  journalRefresh();
+}
 
-function journalInitChart(){
-  if(equityChart)return;
-  const ctx=document.getElementById('equityChart');
-  if(!ctx)return;
-  equityChart=new Chart(ctx,{
-    type:'line',
-    data:{datasets:[
-      {label:'Real equity (R)',data:[],borderColor:'#10b981',backgroundColor:'rgba(16,185,129,0.05)',fill:true,tension:0.3,pointRadius:3,pointBackgroundColor:'#10b981'},
-      {label:'Ghost baseline',data:[],borderColor:'#5a6070',borderDash:[5,5],fill:false,tension:0.3,pointRadius:2}
-    ]},
-    options:{
-      responsive:true,maintainAspectRatio:false,
-      scales:{
-        x:{type:'linear',grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#5a6070',font:{size:10}}},
-        y:{grid:{color:'rgba(255,255,255,0.04)'},ticks:{color:'#5a6070',font:{size:10}}}
-      },
-      plugins:{legend:{position:'top',align:'end',labels:{color:'#8892a4',font:{size:10},boxWidth:12}}}
+function updateKPI() {
+  const real = journal.filter(t => !t.isGhost);
+  const vol = real.length;
+  const vEl = document.getElementById('kpi-vol');
+  if(vEl) vEl.textContent = vol;
+  if (vol === 0) return;
+  const wins = real.filter(t => t.r > 0).length;
+  const wr = (wins / vol * 100).toFixed(1);
+  const grossP = real.filter(t=>t.r>0).reduce((s,t)=>s+t.r,0);
+  const grossL = Math.abs(real.filter(t=>t.r<0).reduce((s,t)=>s+t.r,0));
+  const pf = grossL === 0 ? grossP.toFixed(2) : (grossP/grossL).toFixed(2);
+  const totalR = real.reduce((s,t)=>s+t.r,0);
+  const exp = (totalR/vol).toFixed(2);
+  const wrEl=document.getElementById('kpi-wr');if(wrEl){wrEl.textContent=wr+'%';wrEl.className=wr>=50?'pos':'neg';}
+  const pfEl=document.getElementById('kpi-pf');if(pfEl){pfEl.textContent=pf;pfEl.className=parseFloat(pf)>=1.5?'pos':'neg';}
+  const expEl=document.getElementById('kpi-exp');if(expEl){expEl.textContent=exp+'R';expEl.className=parseFloat(exp)>=0?'pos':'neg';}
+}
+
+function journalRenderList() {
+  const el = document.getElementById('trade-list');
+  if(!el) return;
+  if (!journal.length) { el.innerHTML='<div class="lempty">Brak tradów</div>'; return; }
+  el.innerHTML = journal.slice().reverse().map(t=>`
+    <div class="trade-row">
+      <span class="trade-id">${new Date(t.date).toLocaleDateString('pl-PL')}</span>
+      <span class="trade-dir ${t.dir}">${t.dir.toUpperCase()}</span>
+      <span class="trade-instr">${t.instr}</span>
+      <span class="${t.isGhost?'tag-ghost':'tag-real'}">${t.isGhost?'GHOST':'REAL'}</span>
+      <span class="trade-r ${t.r>=0?'pos':'neg'}">${t.r>=0?'+':''}${t.r}R</span>
+    </div>`).join('');
+}
+
+function calcEquityData() {
+  let cur=0;
+  return journal.filter(t=>!t.isGhost).map(t=>{cur+=t.r;return cur;});
+}
+
+function journalInitChart() {
+  if(equityChart) return;
+  const ctx = document.getElementById('equityChart');
+  if(!ctx) return;
+  equityChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: ['Start', ...calcEquityData().map((_,i)=>i+1)],
+      datasets: [{
+        label: 'Equity Curve (R)',
+        data: [0, ...calcEquityData()],
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16,185,129,0.08)',
+        borderWidth: 2, fill: true, tension: 0.3,
+        pointRadius: 3, pointBackgroundColor: '#10b981'
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { display: false },
+        y: { grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'#5a6070',font:{size:10}} }
+      }
     }
   });
 }
 
-function journalRefresh(){
+function journalUpdateChart() {
+  if(!equityChart) return;
+  const data = calcEquityData();
+  equityChart.data.labels = ['Start', ...data.map((_,i)=>i+1)];
+  equityChart.data.datasets[0].data = [0, ...data];
+  equityChart.update('none');
+}
+
+function journalRefresh() {
   journalInitChart();
-  if(equityChart){
-    equityChart.data.datasets[0].data=Journal.getCurve('REAL');
-    equityChart.data.datasets[1].data=Journal.getCurve('ALL');
-    equityChart.update('none');
-  }
-  const k=Journal.getKPIs();
-  if(k){
-    const pfEl=document.getElementById('kpi-pf');
-    if(pfEl){pfEl.textContent=k.pf;pfEl.className=parseFloat(k.pf)>=1.5?'pos':parseFloat(k.pf)>=1?'neu':'neg';}
-    const expEl=document.getElementById('kpi-exp');
-    if(expEl){expEl.textContent=k.exp+'R';expEl.className=parseFloat(k.exp)>0?'pos':parseFloat(k.exp)<0?'neg':'neu';}
-    const wrEl=document.getElementById('kpi-wr');
-    if(wrEl){wrEl.textContent=k.wr+'%';wrEl.className=parseInt(k.wr)>=55?'pos':parseInt(k.wr)>=45?'neu':'neg';}
-    const volEl=document.getElementById('kpi-vol');
-    if(volEl){volEl.textContent=k.vol;}
-  } else {
-    ['kpi-pf','kpi-exp','kpi-wr'].forEach(id=>{const el=document.getElementById(id);if(el){el.textContent='—';el.className='neu';}});
-    const v=document.getElementById('kpi-vol');if(v)v.textContent=Journal.getClosed().filter(t=>!t.isGhost).length;
-  }
+  updateKPI();
   journalRenderList();
+  journalUpdateChart();
 }
 
-function journalRenderList(){
-  const listEl=document.getElementById('trade-list');
-  if(!listEl)return;
-  const closed=Journal.getClosed().reverse().slice(0,20);
-  const open=Journal.getOpen();
-  if(!closed.length&&!open.length){listEl.innerHTML='<div class="lempty">Brak tradów</div>';return;}
-  const openHtml=open.map(t=>`
-    <div class="trade-row">
-      <span class="trade-id">${t.tradeId}</span>
-      <span class="trade-dir ${t.dir}">${t.dir.toUpperCase()}</span>
-      <span class="trade-instr">${t.instr}</span>
-      <span class="trade-r">entry ${t.entry}</span>
-      <span class="open-badge">OPEN</span>
-      <span class="${t.isGhost?'tag-ghost':'tag-real'}">${t.isGhost?'ghost':'real'}</span>
-      <button class="close-btn" onclick="journalClose('${t.tradeId}')">zamknij</button>
-    </div>`).join('');
-  const closedHtml=closed.map(t=>`
-    <div class="trade-row">
-      <span class="trade-id">${t.tradeId}</span>
-      <span class="trade-dir ${t.dir}">${t.dir.toUpperCase()}</span>
-      <span class="trade-instr">${t.instr}</span>
-      <span class="trade-r ${t.resultR>0?'pos':'neg'}">${t.resultR>0?'+':''}${t.resultR}R</span>
-      <span class="${t.isGhost?'tag-ghost':'tag-real'}">${t.isGhost?'ghost':'real'}</span>
-    </div>`).join('');
-  listEl.innerHTML=openHtml+closedHtml;
+function saveJournal() {
+  try { localStorage.setItem('trading_journal', JSON.stringify(journal)); } catch(e) {}
 }
 
-function journalAdd(isGhost){
-  const dir=document.getElementById('j-dir').value;
-  const instr=document.getElementById('j-instr').value;
-  const entry=parseFloat(document.getElementById('j-entry').value);
-  const exitVal=parseFloat(document.getElementById('j-exit').value);
-  if(isNaN(entry)||isNaN(exitVal))return;
-
-  const tradeId='T-'+Math.floor(Math.random()*9000+1000);
-
-  // Jeśli exit wygląda jak R-multiple (małe, np. -1 do 5), użyj jako R
-  // Jeśli duże — oblicz R relative do SL (używamy ATR jako proxy)
-  let resultR;
-  if(Math.abs(exitVal)<20){
-    // Traktuj jako R-multiple
-    resultR=parseFloat(exitVal.toFixed(2));
-  } else {
-    // Oblicz R z cen
-    const instrCfg=INSTRUMENTS.find(i=>i.name===instr)||INSTRUMENTS[0];
-    const diff=dir==='long'?exitVal-entry:entry-exitVal;
-    resultR=parseFloat((diff/instrCfg.sl).toFixed(2));
-  }
-
-  Journal.addEvent('TRADE_OPEN',{tradeId,dir,instr,entry,isGhost});
-  Journal.addEvent('TRADE_CLOSE',{tradeId,resultR});
-
-  document.getElementById('j-entry').value='';
-  document.getElementById('j-exit').value='';
-  journalRefresh();
+function journalExportCSV() {
+  if(!journal.length) return;
+  let csv = 'Date,Instrument,Direction,Type,Result_R\n';
+  journal.forEach(t => { csv += `${t.date},${t.instr},${t.dir},${t.isGhost?'Ghost':'Real'},${t.r}\n`; });
+  const blob = new Blob([csv],{type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'system_o_'+new Date().toISOString().split('T')[0]+'.csv';
+  a.click();
 }
 
-function journalClose(tradeId){
-  const r=prompt('Wynik w R (np. 1.5, -0.5, 2.0):');
-  if(r===null||r==='')return;
-  const resultR=parseFloat(r);
-  if(isNaN(resultR))return;
-  Journal.addEvent('TRADE_CLOSE',{tradeId,resultR});
-  journalRefresh();
-}
-
-function journalExportCSV(){
-  const trades=Journal.getClosed();
-  if(!trades.length)return;
-  const rows=['ID,Dir,Instr,Entry,Result R,Ghost,Closed'].concat(
-    trades.map(t=>`${t.tradeId},${t.dir},${t.instr},${t.entry},${t.resultR},${t.isGhost?'yes':'no'},${t.closedAt}`)
-  );
-  const blob=new Blob([rows.join('\n')],{type:'text/csv'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-  a.download='system_o_journal_'+new Date().toISOString().split('T')[0]+'.csv';a.click();
-}
-
-function journalReset(){
-  if(!confirm('Wyczyścić całą bazę tradów?'))return;
-  localStorage.removeItem('so_v2_log');localStorage.removeItem('so_v2_ids');
-  Journal.events=[];Journal.processed=new Set();
+function journalReset() {
+  if(!confirm('Wyczyścić całą bazę tradów?')) return;
+  journal = [];
+  saveJournal();
+  if(equityChart){equityChart.destroy();equityChart=null;}
   journalRefresh();
 }
 
 // ─── INIT ─────────────────────────────────────────────────────
+
+// ─── INIT ─────────────────────────────────────────────────────
 loadCalendar();loadDXY();loadVIX();loadCOT();
-Journal._load();journalRefresh();
+journalRefresh();
 setInterval(tick,1000);tick();updateRisk();
 // Auto-refresh cen co 60s niezależnie od skanu
 async function refreshPrices(){
