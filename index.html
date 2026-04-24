@@ -1,96 +1,589 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>System O — Console PRO</title>
-    <style>
-        :root {
-            --bg: #0a0c10; --card: #12151c; --border: rgba(255,255,255,0.05);
-            --text: #e2e8f0; --muted: #64748b;
-            --green: #10b981; --red: #ef4444; --amber: #f59e0b;
-        }
-        body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; margin: 0; padding: 15px; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
-        
-        /* Makro Alert */
-        .macro-timer { color: var(--amber); font-weight: 700; font-size: 13px; background: rgba(245,158,11,0.1); padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(245,158,11,0.2); }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>QUANT OS · CONSOLE</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
 
-        /* Signal Card */
-        .signal-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 12px; position: relative; overflow: hidden; }
-        .signal-card.class-A { border-left: 4px solid var(--green); }
-        .signal-card.class-B { border-left: 4px solid var(--amber); }
-        .signal-card.class-C { border-left: 4px solid var(--muted); opacity: 0.6; }
+:root {
+  --bg: #0a0c10;
+  --bg2: #0f1117;
+  --bg3: #111520;
+  --border: #1e2230;
+  --border2: #2a3040;
+  --text: #c8cdd8;
+  --text-hi: #e2e6f0;
+  --muted: #4a5060;
+  --muted2: #3a4050;
+  --green: #10b981;
+  --green-dim: rgba(16,185,129,0.15);
+  --red: #ef4444;
+  --red-dim: rgba(239,68,68,0.15);
+  --amber: #f59e0b;
+  --amber-dim: rgba(245,158,11,0.15);
+  --blue: #3b82f6;
+  --r: 10px;
+}
 
-        .sig-top { display: flex; justify-content: space-between; margin-bottom: 12px; }
-        .instr-name { font-size: 18px; font-weight: 900; letter-spacing: -0.5px; }
-        .timestamp { color: var(--muted); font-size: 11px; font-family: monospace; }
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
-        /* Levels Grid */
-        .levels { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; }
-        .lvl { font-size: 10px; color: var(--muted); text-transform: uppercase; font-weight: 700; }
-        .val { font-size: 14px; color: var(--text); font-weight: 700; margin-top: 2px; font-family: monospace; }
-        
-        .val.tp1 { color: var(--green); }
-        .val.tp2 { color: var(--muted); font-size: 12px; } /* TP2 opcjonalny/szary */
-        .val.sl { color: var(--red); }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'IBM Plex Sans', -apple-system, sans-serif;
+  min-height: 100vh;
+  padding: 16px;
+}
 
-        /* Decision Light */
-        .badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; font-weight: 900; }
-        .badge-A { background: var(--green); color: var(--bg); }
-        .badge-B { background: var(--amber); color: var(--bg); }
-        .badge-C { background: var(--muted); color: var(--bg); }
-    </style>
+.wrap { max-width: 520px; margin: 0 auto; }
+
+/* HEADER */
+.hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.hdr-brand {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--blue);
+  letter-spacing: 2px;
+}
+.hdr-right { text-align: right; }
+.hdr-clock {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  color: var(--text-hi);
+  font-weight: 600;
+}
+.hdr-date {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+
+/* MACRO BAR */
+.macro-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  margin-bottom: 12px;
+}
+.macro-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--green);
+}
+.macro-led.warn { background: var(--amber); animation: blink 1.5s infinite; }
+.macro-led.block { background: var(--red); animation: blink 0.8s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.macro-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+  flex: 1;
+}
+.macro-timer {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+.macro-timer.clear { color: var(--muted2); }
+.macro-timer.warn { color: var(--amber); }
+.macro-timer.block { color: var(--red); }
+
+/* SCAN BAR */
+.scan-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.scan-status {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  flex: 1;
+}
+.scan-status span { color: var(--text); }
+.btn-scan {
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  padding: 7px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn-scan:hover { background: var(--border); border-color: var(--muted); }
+.btn-scan:active { transform: scale(0.97); }
+.btn-scan.loading { color: var(--muted); pointer-events: none; }
+
+/* SIGNAL CARDS */
+.signals { display: flex; flex-direction: column; gap: 8px; }
+
+.sig {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s, opacity 0.3s;
+}
+.sig:hover { border-color: var(--border2); }
+
+.sig-stripe {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+}
+.sig-stripe.long { background: var(--green); }
+.sig-stripe.short { background: var(--red); }
+.sig-stripe.none { background: var(--border2); }
+
+/* stale overlay */
+.sig.stale { opacity: 0.45; }
+.sig.stale .sig-pval { color: var(--muted2) !important; }
+
+/* top row */
+.sig-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.sig-sym {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-hi);
+  min-width: 68px;
+}
+.sig-dir {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.sig-dir.long { background: var(--green-dim); color: var(--green); }
+.sig-dir.short { background: var(--red-dim); color: var(--red); }
+.sig-dir.none { background: rgba(42,48,64,0.4); color: var(--muted2); }
+
+.sig-cls {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  color: var(--muted);
+}
+
+.sig-meta {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.sig-age {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  color: var(--muted2);
+}
+
+.sig-lamp {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.lamp-a { background: var(--green); box-shadow: 0 0 5px rgba(16,185,129,0.5); }
+.lamp-b { background: var(--amber); box-shadow: 0 0 5px rgba(245,158,11,0.4); }
+.lamp-c { background: var(--red); box-shadow: 0 0 5px rgba(239,68,68,0.4); }
+.lamp-x { background: var(--muted2); }
+
+/* prices */
+.sig-prices {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.sig-price {}
+.sig-plabel {
+  font-size: 8px;
+  color: var(--muted2);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+.sig-pval {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 600;
+  line-height: 1;
+}
+.sig-pval.entry { font-size: 16px; color: var(--text-hi); }
+.sig-pval.sl    { font-size: 16px; color: var(--red); }
+.sig-pval.tp1   { font-size: 16px; color: var(--green); }
+.sig-pval.tp2   { font-size: 13px; color: var(--muted2); }
+.sig-pval.empty { font-size: 16px; color: var(--muted2); }
+
+/* setup type tag */
+.sig-setup {
+  display: inline-block;
+  margin-top: 8px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+}
+
+/* FOOTER */
+.footer {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.footer-note {
+  font-size: 9px;
+  color: var(--muted2);
+  font-family: 'IBM Plex Mono', monospace;
+}
+.scan-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--muted2);
+}
+.scan-dot.active {
+  background: var(--green);
+  animation: blink 2s infinite;
+}
+</style>
 </head>
 <body>
+<div class="wrap">
 
-<div class="header">
+  <div class="hdr">
     <div>
-        <h1 style="font-size: 16px; margin:0;">SYSTEM O <span style="color:var(--muted)">CONSOLE</span></h1>
+      <div class="hdr-brand">QUANT OS · CONSOLE</div>
     </div>
-    <div class="macro-timer">⚠️ US Core CPI: 47 min</div>
-</div>
+    <div class="hdr-right">
+      <div class="hdr-clock" id="clk">--:--:--</div>
+      <div class="hdr-date" id="dt">--</div>
+    </div>
+  </div>
 
-<div id="signals-container">
-    <div class="signal-card class-A">
-        <div class="sig-top">
-            <div>
-                <span class="instr-name">US500</span> 
-                <span class="badge badge-A">KLASA A</span>
-            </div>
-            <div class="timestamp">14:22:05 (2m ago)</div>
-        </div>
-        <div class="levels">
-            <div><div class="lvl">ENTRY</div><div class="val">5120.50</div></div>
-            <div><div class="lvl">SL</div><div class="val sl">5110.25</div></div>
-            <div><div class="lvl">TP1 (0.75R)</div><div class="val tp1">5128.25</div></div>
-            <div><div class="lvl">TP2 (Bonus)</div><div class="val tp2">5140.00</div></div>
-        </div>
-    </div>
+  <div class="macro-bar">
+    <div class="macro-led" id="macro-led"></div>
+    <div class="macro-label" id="macro-label">VOLATILITY GUARD</div>
+    <div class="macro-timer clear" id="macro-timer">—</div>
+  </div>
 
-    <div class="signal-card class-B">
-        <div class="sig-top">
-            <div>
-                <span class="instr-name">NAS100</span> 
-                <span class="badge badge-B">KLASA B</span>
-            </div>
-            <div class="timestamp">14:15:00 (9m ago)</div>
-        </div>
-        <div class="levels">
-            <div><div class="lvl">ENTRY</div><div class="val">18250.0</div></div>
-            <div><div class="lvl">SL</div><div class="val sl">18220.0</div></div>
-            <div><div class="lvl">TP1</div><div class="val tp1">18272.5</div></div>
-            <div><div class="lvl">TP2</div><div class="val tp2">18300.0</div></div>
-        </div>
+  <div class="scan-bar">
+    <div class="scan-status">skan co <span>5 min</span> · ostatni: <span id="last-scan">—</span></div>
+    <button class="btn-scan" id="btn-scan" onclick="manualScan()">⟳ SKAN</button>
+  </div>
+
+  <div class="signals" id="signals">
+    <div style="text-align:center;padding:30px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#2a3040;">
+      INICJALIZACJA...
     </div>
+  </div>
+
+  <div class="footer">
+    <div class="footer-note">nie jest poradą inwestycyjną · demo only</div>
+    <div class="scan-dot" id="scan-dot"></div>
+  </div>
+
 </div>
 
 <script>
-    // Tu będzie Twoja logika fetchująca sygnały z signal-cache.json
-    // Skupiamy się na: 
-    // 1. Obliczaniu wieku sygnału (now Date() - signal.timestamp)
-    // 2. Mapowaniu score (0-100) na Klasy A, B, C
-</script>
+const INSTRUMENTS = [
+  { sym: 'US500',  ticker: 'ES=F',    dec: 1,  session: 'NY',    riskPct: 0.0020 },
+  { sym: 'NAS100', ticker: 'NQ=F',    dec: 1,  session: 'NY',    riskPct: 0.0022 },
+  { sym: 'GOLD',   ticker: 'GC=F',    dec: 2,  session: 'EU/NY', riskPct: 0.0025 },
+  { sym: 'EURUSD', ticker: 'EURUSD=X',dec: 4,  session: 'EU',    riskPct: 0.0018 },
+  { sym: 'BTC',    ticker: 'BTC-USD', dec: 0,  session: '24H',   riskPct: 0.0028 }
+];
 
+const MACRO_EVENTS = [
+  { h:9,  m:0,  label:'London Open' },
+  { h:14, m:30, label:'US news window' },
+  { h:15, m:15, label:'Pre-NY caution' },
+  { h:15, m:30, label:'NY Open' },
+  { h:16, m:0,  label:'NY data window' },
+  { h:20, m:30, label:'API / Fed speaker' }
+];
+
+let signals = {};
+let lastScanTime = null;
+let scanning = false;
+
+function fmt(v, dec) {
+  if (v == null) return '—';
+  if (dec >= 4) return v.toFixed(dec);
+  if (dec >= 1) return v.toFixed(dec);
+  return Math.round(v).toLocaleString();
+}
+
+function ageStr(ts) {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return s + 's';
+  return Math.floor(s / 60) + 'm';
+}
+
+function isStale(ts) {
+  return (Date.now() - ts) > 15 * 60 * 1000;
+}
+
+function macroStatus() {
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  let nearest = null, minDiff = Infinity;
+  MACRO_EVENTS.forEach(e => {
+    const eMin = e.h * 60 + e.m;
+    const diff = eMin - nowMin;
+    if (diff > 0 && diff < minDiff) { minDiff = diff; nearest = e; }
+  });
+  return { nearest, minDiff };
+}
+
+function renderMacro() {
+  const { nearest, minDiff } = macroStatus();
+  const led = document.getElementById('macro-led');
+  const lbl = document.getElementById('macro-label');
+  const tmr = document.getElementById('macro-timer');
+  if (!nearest) {
+    led.className = 'macro-led';
+    lbl.textContent = 'CLEAR — no more events today';
+    tmr.textContent = '';
+    tmr.className = 'macro-timer clear';
+    return;
+  }
+  if (minDiff <= 5) {
+    led.className = 'macro-led block';
+    lbl.textContent = 'BLOCKED — ' + nearest.label;
+    tmr.textContent = minDiff + 'm';
+    tmr.className = 'macro-timer block';
+  } else if (minDiff <= 30) {
+    led.className = 'macro-led warn';
+    lbl.textContent = 'CAUTION — ' + nearest.label;
+    tmr.textContent = minDiff + 'm';
+    tmr.className = 'macro-timer warn';
+  } else {
+    led.className = 'macro-led';
+    lbl.textContent = 'CLEAR · next: ' + nearest.label;
+    tmr.textContent = minDiff + 'm';
+    tmr.className = 'macro-timer clear';
+  }
+}
+
+async function fetchPrice(ticker) {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=5m&range=1d&includePrePost=false`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const chart = data.chart.result[0];
+    const closes = chart.indicators.quote[0].close.filter(v => v != null);
+    const highs  = chart.indicators.quote[0].high.filter(v => v != null);
+    const lows   = chart.indicators.quote[0].low.filter(v => v != null);
+    const price  = closes[closes.length - 1];
+    return { price, closes, highs, lows };
+  } catch(e) {
+    return null;
+  }
+}
+
+function ema(arr, period) {
+  if (arr.length < period) return null;
+  const k = 2 / (period + 1);
+  let e = arr.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < arr.length; i++) e = arr[i] * k + e * (1 - k);
+  return e;
+}
+
+function atr(highs, lows, closes, period) {
+  if (highs.length < period + 1) return null;
+  let trs = [];
+  for (let i = 1; i < highs.length; i++) {
+    trs.push(Math.max(
+      highs[i] - lows[i],
+      Math.abs(highs[i] - closes[i - 1]),
+      Math.abs(lows[i] - closes[i - 1])
+    ));
+  }
+  return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
+}
+
+function detectSetup(closes, highs, lows) {
+  if (closes.length < 20) return null;
+  const n = closes.length;
+  const price = closes[n - 1];
+  const ema20 = ema(closes, 20);
+  const ema50 = ema(closes, Math.min(50, closes.length));
+  if (!ema20 || !ema50) return null;
+
+  const recentHigh = Math.max(...highs.slice(-10));
+  const recentLow  = Math.min(...lows.slice(-10));
+  const prevHigh   = Math.max(...highs.slice(-20, -10));
+  const prevLow    = Math.min(...lows.slice(-20, -10));
+  const atrVal     = atr(highs, lows, closes, 14);
+  if (!atrVal) return null;
+
+  let dir = null, setupType = null, cls = 'C';
+
+  // FAILED BREAKOUT (PO3 manipulation)
+  if (highs[n-1] > prevHigh && closes[n-1] < prevHigh) {
+    dir = 'SHORT'; setupType = 'FAILED_BREAK';
+    cls = ema20 < ema50 ? 'A' : 'B';
+  } else if (lows[n-1] < prevLow && closes[n-1] > prevLow) {
+    dir = 'LONG'; setupType = 'FAILED_BREAK';
+    cls = ema20 > ema50 ? 'A' : 'B';
+  }
+  // IMPULSE + PULLBACK
+  else if (ema20 > ema50 && price > ema20 && closes[n-2] < ema20) {
+    dir = 'LONG'; setupType = 'IMPULSE_PB'; cls = 'B';
+  } else if (ema20 < ema50 && price < ema20 && closes[n-2] > ema20) {
+    dir = 'SHORT'; setupType = 'IMPULSE_PB'; cls = 'B';
+  }
+  // BREAKOUT continuation
+  else if (price > recentHigh * 1.002 && ema20 > ema50) {
+    dir = 'LONG'; setupType = 'BREAKOUT'; cls = 'B';
+  } else if (price < recentLow * 0.998 && ema20 < ema50) {
+    dir = 'SHORT'; setupType = 'BREAKOUT'; cls = 'B';
+  }
+
+  if (!dir) return null;
+
+  const entry = price;
+  const slDist = atrVal * 1.5;
+  const sl  = dir === 'LONG' ? entry - slDist : entry + slDist;
+  const tp1 = dir === 'LONG' ? entry + slDist * 0.75 : entry - slDist * 0.75;
+  const tp2 = dir === 'LONG' ? entry + slDist * 1.5  : entry - slDist * 1.5;
+
+  return { dir, entry, sl, tp1, tp2, cls, setupType, ts: Date.now() };
+}
+
+async function scanInstrument(inst) {
+  const data = await fetchPrice(inst.ticker);
+  if (!data) return null;
+  return detectSetup(data.closes, data.highs, data.lows);
+}
+
+async function runScan() {
+  if (scanning) return;
+  scanning = true;
+  const btn = document.getElementById('btn-scan');
+  const dot = document.getElementById('scan-dot');
+  btn.textContent = '⟳ SKANUJĘ...';
+  btn.classList.add('loading');
+  dot.classList.add('active');
+
+  const results = await Promise.all(INSTRUMENTS.map(inst => scanInstrument(inst)));
+  INSTRUMENTS.forEach((inst, i) => {
+    signals[inst.sym] = results[i];
+  });
+
+  lastScanTime = new Date();
+  document.getElementById('last-scan').textContent =
+    lastScanTime.toTimeString().slice(0, 5);
+
+  scanning = false;
+  btn.textContent = '⟳ SKAN';
+  btn.classList.remove('loading');
+  setTimeout(() => dot.classList.remove('active'), 1000);
+  renderSignals();
+}
+
+function manualScan() { runScan(); }
+
+function renderSignals() {
+  const container = document.getElementById('signals');
+  container.innerHTML = INSTRUMENTS.map(inst => {
+    const sig = signals[inst.sym];
+    const dec = inst.dec;
+
+    if (!sig) {
+      return `<div class="sig">
+        <div class="sig-stripe none"></div>
+        <div class="sig-top">
+          <span class="sig-sym">${inst.sym}</span>
+          <span class="sig-dir none">NO SETUP</span>
+          <div class="sig-meta"><span class="sig-lamp lamp-x"></span></div>
+        </div>
+        <div class="sig-prices">
+          <div class="sig-price"><div class="sig-plabel">ENTRY</div><div class="sig-pval empty">—</div></div>
+          <div class="sig-price"><div class="sig-plabel">SL</div><div class="sig-pval empty">—</div></div>
+          <div class="sig-price"><div class="sig-plabel">TP1</div><div class="sig-pval empty">—</div></div>
+          <div class="sig-price"><div class="sig-plabel">TP2</div><div class="sig-pval empty">—</div></div>
+        </div>
+      </div>`;
+    }
+
+    const stale = isStale(sig.ts);
+    const lampCls = 'lamp-' + sig.cls.toLowerCase();
+    const setupLabels = {
+      'FAILED_BREAK': 'PO3 · Failed Breakout',
+      'IMPULSE_PB':   'PO3 · Impulse Pullback',
+      'BREAKOUT':     'PO3 · Breakout'
+    };
+
+    return `<div class="sig${stale ? ' stale' : ''}">
+      <div class="sig-stripe ${sig.dir.toLowerCase()}"></div>
+      <div class="sig-top">
+        <span class="sig-sym">${inst.sym}</span>
+        <span class="sig-dir ${sig.dir.toLowerCase()}">${sig.dir}</span>
+        <span class="sig-cls">· ${sig.cls}</span>
+        <div class="sig-meta">
+          <span class="sig-age">${ageStr(sig.ts)}</span>
+          <span class="sig-lamp ${lampCls}"></span>
+        </div>
+      </div>
+      <div class="sig-prices">
+        <div class="sig-price"><div class="sig-plabel">ENTRY</div><div class="sig-pval entry">${fmt(sig.entry, dec)}</div></div>
+        <div class="sig-price"><div class="sig-plabel">SL</div><div class="sig-pval sl">${fmt(sig.sl, dec)}</div></div>
+        <div class="sig-price"><div class="sig-plabel">TP1</div><div class="sig-pval tp1">${fmt(sig.tp1, dec)}</div></div>
+        <div class="sig-price"><div class="sig-plabel">TP2</div><div class="sig-pval tp2">${fmt(sig.tp2, dec)}</div></div>
+      </div>
+      <div class="sig-setup">${setupLabels[sig.setupType] || sig.setupType}</div>
+    </div>`;
+  }).join('');
+}
+
+function tickClock() {
+  const now = new Date();
+  document.getElementById('clk').textContent = now.toTimeString().slice(0, 8);
+  document.getElementById('dt').textContent = now.toLocaleDateString('pl-PL', {
+    weekday: 'short', day: '2-digit', month: '2-digit'
+  }).toUpperCase();
+  renderMacro();
+}
+
+// AUTO SCAN CO 5 MIN
+setInterval(runScan, 5 * 60 * 1000);
+setInterval(tickClock, 1000);
+tickClock();
+runScan();
+</script>
 </body>
 </html>
