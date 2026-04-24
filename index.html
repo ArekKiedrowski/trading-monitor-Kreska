@@ -65,16 +65,29 @@
  * Podmień poniższe dane na swoje.
  */
 const Telegram = {
-    token: "TU_WKLEJ_SWOJ_TOKEN", 
-    chatId: "TU_WKLEJ_SWOJ_CHAT_ID",
+
+    token: "7980338718:AAGAvtgMiOIBUs6LTEnVlIa_S28ruL-7Z9o", 
+
+    chatId: "1599380596",
+
+
 
     async send(msg) {
-        if(this.token.includes("TU_WKLEJ")) return; // Nie wysyłaj jeśli nie ustawiono
+
         try {
+
             const url = `https://api.telegram.org/bot${this.token}/sendMessage?chat_id=${this.chatId}&text=${encodeURIComponent(msg)}&parse_mode=Markdown`;
+
             await fetch(url);
-        } catch (e) { console.error("Telegram Error:", e); }
+
+        } catch (e) { 
+
+            console.error("Telegram Error:", e); 
+
+        }
+
     }
+
 };
 
 /**
