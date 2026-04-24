@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QUANT OS · CONSOLE</title>
+    <style>
+        :root {
+            --bg: #090b0f; --card: #12151c; --border: #1f242d;
+            --text: #e2e8f0; --muted: #475569;
+            --green: #10b981; --red: #ef4444; --amber: #f59e0b; --blue: #3b82f6;
+        }
+        * { box-sizing: border-box; outline: none; }
+        body { background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; margin: 0; padding: 15px; }
+
+        .header {
+            display: flex; justify-content: space-between; align-items: center;
+            max-width: 850px; margin: 0 auto 12px auto; padding: 0 5px;
+        }
+        .logo { font-weight: 900; font-size: 12px; opacity: 0.4; letter-spacing: 1px; }
+        .macro-pill {
+            font-size: 11px; font-weight: 800; text-transform: uppercase;
+            letter-spacing: 0.8px; padding: 5px 10px; border-radius: 6px;
+            border: 1px solid transparent; transition: 0.3s;
+        }
+        .macro-clear { color: var(--green); background: rgba(16,185,129,0.08); border-color: rgba(16,185,129,0.15); }
+        .macro-warn  { color: var(--amber); background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.2); }
+        .macro-block { color: var(--red); background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.25); animation: blink 0.9s infinite; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+        .subheader {
+            display: flex; justify-content: space-between; align-items: center;
+            max-width: 850px; margin: 0 auto 10px auto; padding: 0 5px;
+        }
+        .scan-info { font-size: 10px; color: var(--muted); font-weight: 600; }
+        .scan-info span { color: var(--text); }
+        .btn-scan {
+            background: #1f242d; border: 1px solid #2a3040; color: var(--text);
+            font-size: 10px; font-weight: 800; letter-spacing: 1px;
+            padding: 6px 12px; border-radius: 5px; cursor: pointer; transition: 0.15s;
+        }
+        .btn-scan:hover { background: #2a3040; }
+        .btn-scan:active { transform: scale(0.97); }
+        .btn-scan.loading { opacity: 0.4; pointer-events: none; }
+
+        /* SESSION STRIP */
+        .sessions {
+            display: flex; gap: 6px; max-width: 850px; margin: 0 auto 12px auto;
+            padding: 0 5px; flex-wrap: wrap;
+        }
+        .sess-tag {
+            font-size: 9px; font-weight: 800; letter-spacing: 0.8px;
+            padding: 3px 8px; border-radius: 4px; text-transform: uppercase;
+            border: 1px solid transparent; transition: 0.2s;
+        }
+        .sess-tag.active   { color: var(--green); background: rgba(16,185,129,0.1); border-color: rgba(16,185,129,0.2); }
+        .sess-tag.inactive { color: var(--muted); background: rgba(71,85,105,0.08); border-color: #1f242d; }
+
+        .list { display: flex; flex-direction: column; gap: 8px; max-width: 850px; margin: 0 auto; }
+
+        .row {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 8px; padding: 12px 18px;
+            display: grid; grid-template-columns: 1.2fr 1fr 1fr 1fr 0.8fr;
+            align-items: center; position: relative;
+            cursor: pointer; transition: border-color 0.2s, opacity 0.2s;
+        }
+        .row:hover { border-color: #2a3040; }
+        .row.A { border-left: 3px solid var(--green); }
+        .row.B { border-left: 3px solid var(--amber); }
+        .row.C { border-left: 3px solid var(--muted); opacity: 0.32; filter: grayscale(0.6); pointer-events: none; }
+        .row.none    { border-left: 3px solid #1f242d; opacity: 0.2; pointer-events: none; }
+        .row.offline { border-left: 3px solid #1f242d; opacity: 0.15; pointer-events: none; filter: grayscale(1); }
+
+        /* offline badge */
+        .offline-badge {
+            display: none; position: absolute; right: 14px; top: 50%;
+            transform: translateY(-50%);
+            font-size: 8px; font-weight: 800; letter-spacing: 1px;
+            color: var(--muted); text-transform: uppercase;
+        }
+        .row.offline .offline-badge { display: block; }
+        .row.offline .time { visibility: hidden; }
+
+        .label { font-size: 9px; color: var(--muted); font-weight: 800; text-transform: uppercase; margin-bottom: 3px; }
+        .inst  { font-size: 18px; font-weight: 900; display: flex; align-items: center; gap: 6px; }
+        .tag   { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 900; }
+        .s { background: rgba(239,68,68,0.12); color: var(--red); }
+        .l { background: rgba(16,185,129,0.12); color: var(--green); }
+        .n { background: rgba(71,85,105,0.15); color: var(--muted); }
+
+        .v    { font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 15px; font-weight: 700; }
+        .v.tp { color: var(--green); }
+        .v.sl { color: var(--red); }
+        .v.en { color: var(--text); }
+
+        .time { font-size: 10px; color: var(--muted); text-align: right; font-weight: 600; }
+        .dot  { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-left: 4px; vertical-align: middle; }
+        .dot.A { background: var(--green); box-shadow: 0 0 7px var(--green); }
+        .dot.B { background: var(--amber); }
+        .dot.C, .dot.none { background: var(--muted); }
+
+        .tp2-row {
+            display: none; grid-column: 1 / -1;
+            background: rgba(16,185,129,0.04); border-top: 1px solid var(--border);
+            margin: 10px -18px -12px -18px; padding: 10px 18px;
+            border-radius: 0 0 8px 8px;
+        }
+        .tp2-row.open { display: flex; align-items: center; gap: 8px; }
+        .tp2-label { font-size: 9px; color: var(--muted); font-weight: 800; text-transform: uppercase; }
+        .tp2-val   { font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 13px; color: var(--muted); font-weight: 700; }
+        .tp2-type  { font-size: 9px; color: var(--muted); margin-left: auto; opacity: 0.5; }
+
+        .footer {
+            max-width: 850px; margin: 14px auto 0; padding: 0 5px;
+            display: flex; justify-content: space-between;
+        }
+        .footer-note { font-size: 9px; color: #1f242d; }
+
+        @media (max-width: 600px) {
+            .row { grid-template-columns: 1fr 1fr; gap: 12px; }
+            .time { grid-column: span 2; text-align: left; border-top: 1px solid var(--border); padding-top: 8px; margin-top: 2px; }
+            .tp2-row { margin: 8px -15px -12px -15px; padding: 8px 15px; }
+            .offline-badge { top: 14px; transform: none; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="logo">QUANT OS</div>
+    <div class="macro-pill macro-clear" id="macro-pill">● CLEAR</div>
+</div>
+
+<div class="sessions" id="sessions"></div>
+
+<div class="subheader">
+    <div class="scan-info">skan co <span>5 min</span> · ostatni: <span id="last-scan">—</span></div>
+    <button class="btn-scan" id="btn-scan" onclick="manualScan()">⟳ SKAN TERAZ</button>
+</div>
+
+<div class="list" id="signal-board">
+    <div style="text-align:center;padding:40px;font-size:11px;color:#1f242d;font-weight:700;letter-spacing:1px;">
+        INICJALIZACJA...
+    </div>
+</div>
+
+<div class="footer">
+    <div class="footer-note">nie jest poradą inwestycyjną · tylko demo</div>
+</div>
+
+<script>
+// ─── CZAS WARSZAWSKI ───────────────────────────────────────────
+function wawNow() {
+    // Polska: UTC+1 zimą, UTC+2 latem
+    const now = new Date();
+    const offset = now.toLocaleString('en-US', { timeZone: 'Europe/Warsaw', hour: 'numeric', hour12: false });
+    const waw = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Warsaw' }));
+    return { h: waw.getHours(), m: waw.getMinutes(), total: waw.getHours() * 60 + waw.getMinutes() };
+}
+
+// ─── OKNA SESJI (czas warszawski) ─────────────────────────────
+const SESSIONS = [
+    { id: 'london',  label: 'London',         from: 9*60,   to: 12*60  },
+    { id: 'overlap', label: 'EU/NY Overlap',   from: 15*60,  to: 17*60  },
+    { id: 'ny',      label: 'NY Open',         from: 15*60+30, to: 22*60 },
+    { id: 'btc',     label: 'BTC 24H',         from: 0,      to: 24*60  }
+];
+
+// ─── OKNA PER INSTRUMENT (czas warszawski) ────────────────────
+const INSTRUMENTS = [
+    {
+        sym: 'US500',  ticker: 'ES=F',      dec: 1,
+        windows: [{ from: 15*60+15, to: 22*60 }],
+        windowLabel: '15:15–22:00'
+    },
+    {
+        sym: 'NAS100', ticker: 'NQ=F',      dec: 1,
+        windows: [{ from: 15*60+15, to: 22*60 }],
+        windowLabel: '15:15–22:00'
+    },
+    {
+        sym: 'GOLD',   ticker: 'GC=F',      dec: 2,
+        windows: [{ from: 9*60, to: 12*60 }, { from: 15*60, to: 22*60 }],
+        windowLabel: '9:00–12:00 · 15:00–22:00'
+    },
+    {
+        sym: 'EURUSD', ticker: 'EURUSD=X',  dec: 4,
+        windows: [{ from: 9*60, to: 12*60 }, { from: 15*60, to: 17*60 }],
+        windowLabel: '9:00–12:00 · 15:00–17:00'
+    },
+    {
+        sym: 'BTC',    ticker: 'BTC-USD',   dec: 0,
+        windows: [{ from: 0, to: 24*60 }],
+        windowLabel: '24H'
+    }
+];
+
+const MACRO_EVENTS = [
+    { h:9,  m:0,  label:'London Open' },
+    { h:14, m:30, label:'US news' },
+    { h:15, m:15, label:'Pre-NY' },
+    { h:15, m:30, label:'NY Open' },
+    { h:16, m:0,  label:'NY data' },
+    { h:20, m:30, label:'Fed speaker' }
+];
+
+const SETUP_LABELS = {
+    FAILED_BREAK: 'PO3 · Failed Breakout',
+    IMPULSE_PB:   'PO3 · Impulse Pullback',
+    BREAKOUT:     'PO3 · Breakout'
+};
+
+let signals = {};
+let scanning = false;
+
+// ─── HELPERS ──────────────────────────────────────────────────
+function isInWindow(inst) {
+    const t = wawNow().total;
+    return inst.windows.some(w => t >= w.from && t <= w.to);
+}
+
+function fmt(v, dec) {
+    if (v == null) return '—';
+    if (dec >= 4) return v.toFixed(dec);
+    if (dec >= 1) return v.toFixed(dec);
+    return Math.round(v).toLocaleString('pl-PL');
+}
+
+function ageStr(ts) {
+    const s = Math.floor((Date.now() - ts) / 1000);
+    if (s < 60) return s + 's ago';
+    return Math.floor(s / 60) + 'm ago';
+}
+
+function isStale(ts) { return Date.now() - ts > 15 * 60 * 1000; }
+
+// ─── MACRO GUARD ──────────────────────────────────────────────
+function updateMacro() {
+    const t = wawNow();
+    const nowMin = t.total;
+    let nearest = null, minDiff = Infinity;
+    MACRO_EVENTS.forEach(e => {
+        const d = e.h * 60 + e.m - nowMin;
+        if (d > 0 && d < minDiff) { minDiff = d; nearest = e; }
+    });
+    const pill = document.getElementById('macro-pill');
+    if (!nearest) {
+        pill.className = 'macro-pill macro-clear';
+        pill.textContent = '● CLEAR';
+    } else if (minDiff <= 5) {
+        pill.className = 'macro-pill macro-block';
+        pill.textContent = '⚠ BLOCKED — ' + nearest.label + ' ' + minDiff + 'min';
+    } else if (minDiff <= 30) {
+        pill.className = 'macro-pill macro-warn';
+        pill.textContent = '⏳ ' + nearest.label + ' — ' + minDiff + 'min';
+    } else {
+        pill.className = 'macro-pill macro-clear';
+        pill.textContent = '● CLEAR · next: ' + nearest.label + ' ' + minDiff + 'min';
+    }
+}
+
+// ─── SESSION STRIP ────────────────────────────────────────────
+function renderSessions() {
+    const t = wawNow().total;
+    document.getElementById('sessions').innerHTML = SESSIONS.map(s => {
+        const active = t >= s.from && t <= s.to;
+        return `<div class="sess-tag ${active ? 'active' : 'inactive'}">${s.label}</div>`;
+    }).join('');
+}
+
+// ─── MATH ─────────────────────────────────────────────────────
+function ema(arr, p) {
+    if (arr.length < p) return null;
+    const k = 2 / (p + 1);
+    let e = arr.slice(0, p).reduce((a, b) => a + b, 0) / p;
+    for (let i = p; i < arr.length; i++) e = arr[i] * k + e * (1 - k);
+    return e;
+}
+
+function calcATR(highs, lows, closes, p) {
+    if (highs.length < p + 1) return null;
+    const trs = [];
+    for (let i = 1; i < highs.length; i++) {
+        trs.push(Math.max(
+            highs[i] - lows[i],
+            Math.abs(highs[i] - closes[i - 1]),
+            Math.abs(lows[i] - closes[i - 1])
+        ));
+    }
+    return trs.slice(-p).reduce((a, b) => a + b, 0) / p;
+}
+
+// ─── PO3 DETECT ───────────────────────────────────────────────
+function detectSetup(closes, highs, lows) {
+    if (closes.length < 22) return null;
+    const n = closes.length;
+    const price  = closes[n - 1];
+    const ema20  = ema(closes, 20);
+    const ema50  = ema(closes, Math.min(50, n));
+    const atrVal = calcATR(highs, lows, closes, 14);
+    if (!ema20 || !ema50 || !atrVal) return null;
+
+    const prevHigh = Math.max(...highs.slice(-20, -10));
+    const prevLow  = Math.min(...lows.slice(-20, -10));
+
+    let dir = null, setupType = null, cls = 'C';
+
+    if (highs[n-1] > prevHigh && closes[n-1] < prevHigh) {
+        dir = 'SHORT'; setupType = 'FAILED_BREAK';
+        cls = ema20 < ema50 ? 'A' : 'B';
+    } else if (lows[n-1] < prevLow && closes[n-1] > prevLow) {
+        dir = 'LONG'; setupType = 'FAILED_BREAK';
+        cls = ema20 > ema50 ? 'A' : 'B';
+    } else if (ema20 > ema50 && price > ema20 && closes[n-2] < ema20) {
+        dir = 'LONG'; setupType = 'IMPULSE_PB'; cls = 'B';
+    } else if (ema20 < ema50 && price < ema20 && closes[n-2] > ema20) {
+        dir = 'SHORT'; setupType = 'IMPULSE_PB'; cls = 'B';
+    } else if (price > prevHigh * 1.002 && ema20 > ema50) {
+        dir = 'LONG'; setupType = 'BREAKOUT'; cls = 'B';
+    } else if (price < prevLow * 0.998 && ema20 < ema50) {
+        dir = 'SHORT'; setupType = 'BREAKOUT'; cls = 'B';
+    }
+
+    if (!dir) return null;
+
+    const slDist = atrVal * 1.5;
+    const entry  = price;
+    const sl     = dir === 'LONG' ? entry - slDist : entry + slDist;
+    const tp1    = dir === 'LONG' ? entry + slDist * 0.75 : entry - slDist * 0.75;
+    const tp2    = dir === 'LONG' ? entry + slDist * 1.5  : entry - slDist * 1.5;
+
+    return { dir, entry, sl, tp1, tp2, cls, setupType, ts: Date.now() };
+}
+
+// ─── FETCH ────────────────────────────────────────────────────
+async function fetchData(ticker) {
+    try {
+        const url = `https://api.allorigins.win/raw?url=https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=5m&range=2d&includePrePost=false`;
+        const r = await fetch(url);
+        const d = await r.json();
+        const q = d.chart.result[0].indicators.quote[0];
+        const closes = q.close.filter(v => v != null);
+        const highs  = q.high.filter(v => v != null);
+        const lows   = q.low.filter(v => v != null);
+        return { closes, highs, lows };
+    } catch (e) { return null; }
+}
+
+// ─── SCAN ─────────────────────────────────────────────────────
+async function runScan() {
+    if (scanning) return;
+    scanning = true;
+    const btn = document.getElementById('btn-scan');
+    btn.textContent = '⟳ SKANUJĘ...';
+    btn.classList.add('loading');
+
+    await Promise.all(INSTRUMENTS.map(async inst => {
+        // Skanuj tylko jeśli instrument jest w oknie sesji
+        if (!isInWindow(inst)) {
+            signals[inst.sym] = { offline: true };
+            return;
+        }
+        const data = await fetchData(inst.ticker);
+        signals[inst.sym] = data ? detectSetup(data.closes, data.highs, data.lows) : null;
+    }));
+
+    document.getElementById('last-scan').textContent =
+        new Date().toTimeString().slice(0, 5);
+
+    scanning = false;
+    btn.textContent = '⟳ SKAN TERAZ';
+    btn.classList.remove('loading');
+    renderBoard();
+}
+
+function manualScan() { runScan(); }
+
+// ─── TOGGLE TP2 ───────────────────────────────────────────────
+function toggleTP2(idx) {
+    const el = document.getElementById('tp2-' + idx);
+    if (el) el.classList.toggle('open');
+}
+
+// ─── RENDER ───────────────────────────────────────────────────
+function renderBoard() {
+    const board = document.getElementById('signal-board');
+    board.innerHTML = INSTRUMENTS.map((inst, idx) => {
+        const sig = signals[inst.sym];
+        const dec = inst.dec;
+
+        // OFFLINE — poza oknem sesji
+        if (sig && sig.offline) {
+            return `<div class="row offline">
+                <div><div class="label">Instrument</div><div class="inst">${inst.sym} <span class="tag n">—</span></div></div>
+                <div><div class="label">Entry</div><div class="v en">—</div></div>
+                <div><div class="label">Stop</div><div class="v">—</div></div>
+                <div><div class="label">Target</div><div class="v">—</div></div>
+                <div class="time">${inst.windowLabel}</div>
+                <div class="offline-badge">poza sesją</div>
+            </div>`;
+        }
+
+        // NO SETUP
+        if (!sig) {
+            return `<div class="row none">
+                <div><div class="label">Instrument</div><div class="inst">${inst.sym} <span class="tag n">—</span></div></div>
+                <div><div class="label">Entry</div><div class="v en">—</div></div>
+                <div><div class="label">Stop</div><div class="v">—</div></div>
+                <div><div class="label">Target</div><div class="v">—</div></div>
+                <div class="time">no setup</div>
+            </div>`;
+        }
+
+        // SETUP
+        const stale  = isStale(sig.ts);
+        const cls    = stale ? 'C' : sig.cls;
+        const dirTag = sig.dir === 'LONG'
+            ? `<span class="tag l">LONG</span>`
+            : `<span class="tag s">SHORT</span>`;
+
+        return `<div class="row ${cls}" onclick="toggleTP2(${idx})" id="row-${idx}">
+            <div>
+                <div class="label">Instrument</div>
+                <div class="inst">${inst.sym} ${dirTag}</div>
+            </div>
+            <div>
+                <div class="label">Entry</div>
+                <div class="v en">${fmt(sig.entry, dec)}</div>
+            </div>
+            <div>
+                <div class="label">Stop</div>
+                <div class="v sl">${fmt(sig.sl, dec)}</div>
+            </div>
+            <div>
+                <div class="label">Target</div>
+                <div class="v tp">${fmt(sig.tp1, dec)}</div>
+            </div>
+            <div class="time">
+                ${ageStr(sig.ts)} <span class="dot ${cls}"></span>
+            </div>
+            <div class="tp2-row" id="tp2-${idx}">
+                <span class="tp2-label">TP2 (bonus)</span>
+                <span class="tp2-val">${fmt(sig.tp2, dec)}</span>
+                <span class="tp2-type">${SETUP_LABELS[sig.setupType] || ''}</span>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// ─── INIT ─────────────────────────────────────────────────────
+setInterval(() => { updateMacro(); renderSessions(); }, 30000);
+setInterval(renderBoard, 30000);
+setInterval(runScan, 5 * 60 * 1000);
+
+updateMacro();
+renderSessions();
+renderBoard();
+runScan();
+</script>
+</body>
+</html>
