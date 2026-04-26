@@ -6,20 +6,26 @@ const TG_TOKEN = process.env.TG_TOKEN;
 const TG_CHAT_ID = process.env.TG_CHAT_ID;
 const ACCOUNT_BALANCE = parseFloat(process.env.ACCOUNT_BALANCE || 10000);
 
+// maksymalna ekspozycja nominalna: 1x equity
+const MAX_EXPOSURE = 1.0;
+
 const TG_THREADS = { SETUP: 2, TRADE: 3, SYSTEM: 4 };
 
 const INSTRUMENTS = [
-  { key: 'btc', name: 'BTC', sym: 'BTC-USD', dec: 2, minRR: 4, market: 'CRYPTO' },
-  { key: 'tsla', name: 'TSLA', sym: 'TSLA', dec: 2, minRR: 4, market: 'TECH' },
-  { key: 'nvda', name: 'NVDA', sym: 'NVDA', dec: 2, minRR: 4, market: 'TECH' },
-  { key: 'goog', name: 'GOOG', sym: 'GOOG', dec: 2, minRR: 3, market: 'TECH' }
+  { key: 'btc',  name: 'BTC',  sym: 'BTC-USD', dec: 2, minRR: 4, market: 'CRYPTO' },
+  { key: 'tsla', name: 'TSLA', sym: 'TSLA',    dec: 2, minRR: 4, market: 'TECH' },
+  { key: 'nvda', name: 'NVDA', sym: 'NVDA',    dec: 2, minRR: 4, market: 'TECH' },
+  { key: 'goog', name: 'GOOG', sym: 'GOOG',    dec: 2, minRR: 3, market: 'TECH' }
 ];
 
 // ================= CACHE =================
-let cache = { pendingSetups: {}, activePositions: {} };
+let cache = { pendingSetups: {}, activePositions: {}, radar: {} };
 try {
   if (fs.existsSync('signal-cache.json')) {
     cache = JSON.parse(fs.readFileSync('signal-cache.json', 'utf8'));
+    if (!cache.pendingSetups)   cache.pendingSetups   = {};
+    if (!cache.activePositions) cache.activePositions = {};
+    if (!cache.radar)           cache.radar           = {};
   }
 } catch {}
 
@@ -77,9 +83,12 @@ async function fetchYahoo(sym) {
         res.on('data', c => (d += c));
         res.on('end', () => {
           try {
-            resolve(JSON.parse(d).chart.result[0]);
-          } catch {
-            reject();
+            const json = JSON.parse(d);
+            const r = json.chart.result && json.chart.result[0];
+            if (!r) return reject(new Error('No chart data'));
+            resolve(r);
+          } catch (e) {
+            reject(e);
           }
         });
       }
@@ -102,6 +111,7 @@ function candlesFromRaw(r) {
 
 // ================= INDICATORS =================
 function ema(data, period) {
+  if (!data || data.length === 0) return null;
   const k = 2 / (period + 1);
   let val = data[0];
   for (let i = 1; i < data.length; i++) {
@@ -111,7 +121,8 @@ function ema(data, period) {
 }
 
 function atr(highs, lows, closes, p = 14) {
-  let trs = [];
+  if (!closes || closes.length <= p) return null;
+  const trs = [];
   for (let i = 1; i < closes.length; i++) {
     trs.push(Math.max(
       highs[i] - lows[i],
@@ -125,15 +136,17 @@ function atr(highs, lows, closes, p = 14) {
 // ================= LOGIC =================
 function detectTrend(c) {
   const closes = c.map(x => x.c);
+  if (closes.length < 220) return false;
   const ema50 = ema(closes.slice(-60), 50);
   const ema200 = ema(closes.slice(-220), 200);
+  if (ema50 === null || ema200 === null) return false;
 
-  if (closes.at(-1) > ema50 && ema50 > ema200) return true;
-  return false;
+  return closes.at(-1) > ema50 && ema50 > ema200;
 }
 
 function detectBoneZone(c) {
   const closes = c.map(x => x.c);
+  if (closes.length < 40) return false;
   const ema9 = ema(closes.slice(-20), 9);
   const ema20 = ema(closes.slice(-40), 20);
   const price = closes.at(-1);
@@ -142,21 +155,24 @@ function detectBoneZone(c) {
 }
 
 function detectTrigger(c) {
+  if (c.length < 3) return false;
   const prevHigh = c.at(-2).h;
   const last = c.at(-1);
 
   const body = Math.abs(last.c - last.o);
   const range = last.h - last.l;
-  const bodyRatio = body / range;
+  const bodyRatio = range > 0 ? body / range : 0;
 
   return last.c > prevHigh && bodyRatio > 0.45;
 }
 
-// ================= POSITION SIZE =================
+// ================= POSITION SIZE + EXPOSURE CAP =================
 function calcSize(balance, risk, entry, sl) {
   const riskUSD = balance * risk;
   const riskPerUnit = Math.abs(entry - sl);
-
+  if (riskPerUnit <= 0) {
+    return { size: 0, value: 0, riskUSD };
+  }
   const size = riskUSD / riskPerUnit;
   return {
     size,
@@ -165,18 +181,32 @@ function calcSize(balance, risk, entry, sl) {
   };
 }
 
+function applyExposureCap(pos, entry) {
+  const maxValue = ACCOUNT_BALANCE * MAX_EXPOSURE;
+  if (pos.value > maxValue) {
+    const size = maxValue / entry;
+    return {
+      ...pos,
+      size,
+      value: size * entry,
+      capped: true
+    };
+  }
+  return { ...pos, capped: false };
+}
+
 // ================= SCORE =================
 function scoreSetup({ trend, bone, trigger }) {
   let s = 0;
-  if (trend) s += 30;
-  if (bone) s += 30;
+  if (trend)   s += 30;
+  if (bone)    s += 30;
   if (trigger) s += 30;
   return s;
 }
 
 function gradeFromScore(score) {
   if (score >= 85) return { grade: 'A+', risk: 0.10 };
-  if (score >= 70) return { grade: 'A', risk: 0.06 };
+  if (score >= 70) return { grade: 'A',  risk: 0.06 };
   if (score >= 55) return { grade: 'WATCH', risk: 0 };
   return { grade: 'INVALID', risk: 0 };
 }
@@ -186,44 +216,74 @@ async function scan(instr) {
   const raw = await fetchYahoo(instr.sym);
   const candles = candlesFromRaw(raw);
 
-  if (candles.length < 200) return;
+  if (candles.length < 200) {
+    log(`[SCAN] ${instr.name} | Not enough data`);
+    return;
+  }
 
   const closes = candles.map(c => c.c);
-  const highs = candles.map(c => c.h);
-  const lows = candles.map(c => c.l);
+  const highs  = candles.map(c => c.h);
+  const lows   = candles.map(c => c.l);
 
   const atrVal = atr(highs, lows, closes);
-  const price = closes.at(-1);
+  const price  = closes.at(-1);
 
-  const trend = detectTrend(candles);
-  const bone = detectBoneZone(candles);
+  const trend   = detectTrend(candles);
+  const bone    = detectBoneZone(candles);
   const trigger = detectTrigger(candles);
 
   const score = scoreSetup({ trend, bone, trigger });
   const { grade, risk } = gradeFromScore(score);
 
-  log(`[SCAN] ${instr.name} | Score ${score} | ${grade}`);
+  // radar status
+  const radarStatus =
+    grade === 'INVALID' ? 'SCANNING' :
+    grade === 'WATCH'   ? 'WATCH' :
+    trigger             ? 'TRIGGER' :
+                          'WATCH';
+
+  cache.radar[instr.key] = {
+    name:   instr.name,
+    score,
+    status: radarStatus,
+    price,
+    ts:     Date.now()
+  };
+
+  log(`[SCAN] ${instr.name} | Status: ${radarStatus} | Score: ${score}`);
 
   if (grade === 'INVALID') return;
 
   if (trigger) {
-    const sl = candles.slice(-10).reduce((m, c) => Math.min(m, c.l), 999999);
+    const sl = candles.slice(-10).reduce((m, c) => Math.min(m, c.l), Infinity);
     const tp = price + (price - sl) * instr.minRR;
 
-    const pos = calcSize(ACCOUNT_BALANCE, risk, price, sl);
+    let pos = calcSize(ACCOUNT_BALANCE, risk, price, sl);
+    pos = applyExposureCap(pos, price);
 
     await notify(
       'SETUP',
-      `🚀 <b>${instr.name}</b>\nGrade: ${grade}\nScore: ${score}\n\nEntry: ${money(price)}\nSL: ${money(sl)}\nTP: ${money(tp)}\n\nSize: ${money(pos.size, 4)}\nValue: $${money(pos.value, 0)}\nRisk: $${money(pos.riskUSD, 0)}`,
+      `🚀 <b>${instr.name}</b>\n` +
+      `Grade: ${grade}\nScore: ${score}\n\n` +
+      `Entry: ${money(price)}\n` +
+      `SL: ${money(sl)}\n` +
+      `TP: ${money(tp)}\n\n` +
+      `Size: ${money(pos.size, 4)}\n` +
+      `Value: $${money(pos.value, 0)}${pos.capped ? ' (CAPPED 1x)' : ''}\n` +
+      `Risk: $${money(pos.riskUSD, 0)}`,
       instr.name
     );
 
     cache.pendingSetups[instr.key] = {
-      entry: price,
+      entry:  price,
       sl,
       tp,
       grade,
-      score
+      score,
+      size:    pos.size,
+      value:   pos.value,
+      riskUSD: pos.riskUSD,
+      capped:  pos.capped
     };
   }
 }
@@ -239,6 +299,7 @@ async function main() {
       process.stdout.write('DONE\n');
     } catch (e) {
       process.stdout.write('FAIL\n');
+      log(`ERROR ${instr.name}: ${e.message || e}`);
     }
   }
 
