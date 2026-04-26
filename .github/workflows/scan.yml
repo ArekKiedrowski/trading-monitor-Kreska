@@ -1,519 +1,444 @@
-name: Trading Monitor Scan
+const https = require('https');
+const fs = require('fs');
 
-on:
-  schedule:
-    - cron: '*/2 6-23 * * 1-5'
-  workflow_dispatch:
+// --- KONFIGURACJA SYSTEMOWA ---
+const MAX_EXPOSURE = 1.0;           // Hard cap: 1x equity
+const ACCOUNT_BALANCE = 10000;      // Fallback, real value najlepiej z GHA secrets / ENV
 
-jobs:
-  scan:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+const TD_KEY = process.env.TD_KEY;
+const TG_TOKEN = process.env.TG_TOKEN;
+const TG_CHAT_ID = process.env.TG_CHAT_ID;
+const TG_THREADS = {
+  SETUP: Number(process.env.TG_THREAD_SETUPS || '2'),
+  TRADE: Number(process.env.TG_THREAD_TRADES || '3'),
+  SYSTEM: Number(process.env.TG_THREAD_SYSTEM || '4'),
+};
+const isManual = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch';
 
-      - name: Restore signal cache
-        uses: actions/cache/restore@v4
-        with:
-          path: signal-cache.json
-          key: signals-${{ github.run_id }}
-          restore-keys: |
-            signals-
+// --- INSTRUMENTY ---
+const INSTRUMENTS = [
+  {key:'us500',  name:'US500',  sym:'ES=F',    src:'yahoo', sl:20,     tp:40,     dec:1, lot:0.05,  atrPctMin:0.15, adxMin:22},
+  {key:'btc',    name:'BTC',    sym:'BTC-USD', src:'yahoo', sl:500,    tp:1500,   dec:0, lot:0.001, atrPctMin:0.50, adxMin:18},
+  {key:'gold',   name:'GOLD',   sym:'XAU/USD', src:'td',    sl:25,     tp:50,     dec:1, lot:0.05,  atrPctMin:0.20, adxMin:20},
+  {key:'eurusd', name:'EURUSD', sym:'EUR/USD', src:'td',    sl:0.0015, tp:0.003,  dec:5, lot:0.05,  atrPctMin:0.10, adxMin:18}
+];
 
-      - name: Create scan runner
-        run: |
-          mkdir -p .github/scripts
-          cat > .github/scripts/scan-runner.js <<'SCRIPT'
-          const https = require('https');
-          const fs = require('fs');
+// --- CACHE ---
+let cache = {};
+try {
+  if (fs.existsSync('signal-cache.json')) {
+    cache = JSON.parse(fs.readFileSync('signal-cache.json', 'utf8'));
+    console.log('Cache loaded');
+  }
+} catch (e) {
+  console.log('Cache init error', e.message);
+}
 
-          const TD_KEY = process.env.TD_KEY;
-          const TG_TOKEN = process.env.TG_TOKEN;
-          const TG_CHAT_ID = process.env.TG_CHAT_ID;
-          const TG_THREADS = {
-            SETUP: Number(process.env.TG_THREAD_SETUPS || '2'),
-            TRADE: Number(process.env.TG_THREAD_TRADES || '3'),
-            SYSTEM: Number(process.env.TG_THREAD_SYSTEM || '4'),
-          };
-          const isManual = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch';
+if (isManual) {
+  cache = {};
+  console.log('Manual run - cache cleared');
+}
+if (!cache.dailyLog)        cache.dailyLog        = [];
+if (!cache.activePositions) cache.activePositions = {};
+if (!cache.radar)           cache.radar           = {};
 
-          const INSTRUMENTS = [
-            {key:'us500', name:'US500', sym:'ES=F', src:'yahoo', sl:20, tp:40, dec:1, lot:0.05, rsiOB:70, rsiOS:30, atrPctMin:0.15, adxMin:22, atrSlMult:0.8, atrTpMult:2.0, srBuffer:0.0, scalpAtrMax:25, scalpLot:0.03},
-            {key:'btc', name:'BTC', sym:'BTC-USD', src:'yahoo', sl:500, tp:1500, dec:0, lot:0.001, rsiOB:70, rsiOS:30, atrPctMin:0.50, adxMin:18, atrSlMult:0.8, atrTpMult:2.0, srBuffer:0.0, scalpAtrMax:3000, scalpLot:0.001},
-            {key:'gold', name:'GOLD', sym:'XAU/USD', src:'td', sl:25, tp:50, dec:1, lot:0.05, rsiOB:68, rsiOS:32, atrPctMin:0.20, adxMin:20, atrSlMult:1.0, atrTpMult:2.2, srBuffer:0.3, scalpAtrMax:18, scalpLot:0.03},
-            {key:'eurusd', name:'EURUSD', sym:'EUR/USD', src:'td', sl:0.0015, tp:0.003, dec:5, lot:0.05, rsiOB:65, rsiOS:35, atrPctMin:0.10, adxMin:18, atrSlMult:0.7, atrTpMult:1.8, srBuffer:0.0, scalpAtrMax:0.001, scalpLot:0.03}
-          ];
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-          let cache = {};
-          try {
-            if (fs.existsSync('signal-cache.json')) {
-              cache = JSON.parse(fs.readFileSync('signal-cache.json', 'utf8'));
-              console.log('Cache loaded');
-            }
-          } catch (e) { console.log('No valid cache'); }
-
-          if (isManual) { cache = {}; console.log('Manual run - cache cleared'); }
-          if (!cache.dailyLog) cache.dailyLog = [];
-          if (!cache.activePositions) cache.activePositions = {};
-
-          function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
-
-          function fetchUrl(url, retries = 2) {
-            return new Promise((resolve, reject) => {
-              const attempt = (n) => {
-                https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, res => {
-                  let data = '';
-                  res.on('data', c => data += c);
-                  res.on('end', () => {
-                    try { resolve(JSON.parse(data)); }
-                    catch (e) { if (n > 0) setTimeout(() => attempt(n - 1), 3000); else reject(new Error('Parse: ' + data.slice(0, 120))); }
-                  });
-                }).on('error', e => { if (n > 0) setTimeout(() => attempt(n - 1), 3000); else reject(e); });
-              };
-              attempt(retries);
-            });
+// --- HTTP / TELEGRAM ---
+function fetchUrl(url, retries = 2) {
+  return new Promise((resolve, reject) => {
+    const attempt = (n) => {
+      https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, res => {
+        let data = '';
+        res.on('data', c => data += c);
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)); }
+          catch (e) {
+            if (n > 0) setTimeout(() => attempt(n - 1), 3000);
+            else reject(new Error('Parse fail: ' + e.message));
           }
+        });
+      }).on('error', e => {
+        if (n > 0) setTimeout(() => attempt(n - 1), 3000);
+        else reject(e);
+      });
+    };
+    attempt(retries);
+  });
+}
 
-          function sendToTelegram(topicType, message) {
-            const threadId = TG_THREADS[topicType] || null;
-            const prefix = topicType === 'SETUP' ? '<b>[🔥 SETUP]</b>\n' : topicType === 'TRADE' ? '<b>[📊 TRADE]</b>\n' : '<b>[⚙️ SYSTEM]</b>\n';
-            const body = JSON.stringify({ chat_id: TG_CHAT_ID, message_thread_id: threadId, text: prefix + message, parse_mode: 'HTML' });
-            const opts = { hostname: 'api.telegram.org', path: `/bot${TG_TOKEN}/sendMessage`, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } };
-            return new Promise(resolve => {
-              const req = https.request(opts, res => { let d=''; res.on('data',c=>d+=c); res.on('end',()=>{console.log('TG:',d.slice(0,100));resolve();}); });
-              req.on('error', e => { console.error('TG error:', e.message); resolve(); });
-              req.write(body); req.end();
-            });
-          }
+function sendToTelegram(topicType, message) {
+  if (!TG_TOKEN || !TG_CHAT_ID) {
+    console.log('TG skipped (missing token/chat_id)');
+    return Promise.resolve();
+  }
+  const threadId = TG_THREADS[topicType] || null;
+  const prefix =
+    topicType === 'SETUP' ? '<b>[🔥 SETUP]</b>\n' :
+    topicType === 'TRADE' ? '<b>[📊 TRADE]</b>\n' :
+                            '<b>[⚙️ SYSTEM]</b>\n';
 
-          function ema(data, period) {
-            if (!data || data.length < period) return null;
-            const k = 2 / (period + 1);
-            let value = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
-            for (let i = period; i < data.length; i++) value = data[i] * k + value * (1 - k);
-            return value;
-          }
-          function rsiFn(closes, period = 14) {
-            if (!closes || closes.length < period + 1) return null;
-            let gains = 0, losses = 0;
-            for (let i = closes.length - period; i < closes.length; i++) { const d = closes[i] - closes[i-1]; if(d>0) gains+=d; else losses+=Math.abs(d); }
-            const ag = gains/period, al = losses/period;
-            if (al === 0) return 100; return 100 - (100 / (1 + ag/al));
-          }
-          function atrFn(highs, lows, closes, period = 14) {
-            if (!closes || closes.length < period + 1) return null;
-            const trs = [];
-            for (let i = 1; i < closes.length; i++) trs.push(Math.max(highs[i]-lows[i], Math.abs(highs[i]-closes[i-1]), Math.abs(lows[i]-closes[i-1])));
-            return trs.slice(-period).reduce((a,b)=>a+b,0) / period;
-          }
-          function adxFn(highs, lows, closes, period = 14) {
-            if (!closes || closes.length < period * 2) return null;
-            const dmP=[],dmM=[],trL=[];
-            for (let i=1;i<closes.length;i++) {
-              const up=highs[i]-highs[i-1],dn=lows[i-1]-lows[i];
-              dmP.push(up>dn&&up>0?up:0); dmM.push(dn>up&&dn>0?dn:0);
-              trL.push(Math.max(highs[i]-lows[i],Math.abs(highs[i]-closes[i-1]),Math.abs(lows[i]-closes[i-1])));
-            }
-            let atr=trL.slice(0,period).reduce((a,b)=>a+b,0);
-            let p=dmP.slice(0,period).reduce((a,b)=>a+b,0);
-            let m=dmM.slice(0,period).reduce((a,b)=>a+b,0);
-            const dxs=[];
-            for (let i=period;i<trL.length;i++) {
-              atr=atr-atr/period+trL[i]; p=p-p/period+dmP[i]; m=m-m/period+dmM[i];
-              const dp=atr>0?100*p/atr:0,dm=atr>0?100*m/atr:0;
-              dxs.push(dp+dm>0?100*Math.abs(dp-dm)/(dp+dm):0);
-            }
-            if (dxs.length < period) return null;
-            return dxs.slice(-period).reduce((a,b)=>a+b,0) / period;
-          }
-          function rocFn(closes, period = 8) {
-            if (!closes || closes.length < period+1) return null;
-            const cur=closes[closes.length-1], prev=closes[closes.length-1-period];
-            return prev > 0 ? ((cur-prev)/prev)*100 : null;
-          }
-          function rollingCorr(a, b, period = 20) {
-            if (!a||!b||a.length<period||b.length<period) return null;
-            const sa=a.slice(-period),sb=b.slice(-period);
-            const ma=sa.reduce((s,v)=>s+v,0)/period, mb=sb.reduce((s,v)=>s+v,0)/period;
-            let cov=0,va=0,vb=0;
-            for (let i=0;i<period;i++) { cov+=(sa[i]-ma)*(sb[i]-mb); va+=(sa[i]-ma)**2; vb+=(sb[i]-mb)**2; }
-            if (va===0||vb===0) return 0;
-            return cov/Math.sqrt(va*vb);
-          }
+  const body = JSON.stringify({
+    chat_id: TG_CHAT_ID,
+    message_thread_id: threadId,
+    text: prefix + message,
+    parse_mode: 'HTML'
+  });
 
-          // ── SETUP DETECTION ────────────────────────────────────────
-          function getRecentRange(highs, lows, lookback = 20) {
-            return { recentHigh: Math.max(...highs.slice(-lookback)), recentLow: Math.min(...lows.slice(-lookback)) };
-          }
-          function detectSetup(closes, highs, lows, atrVal) {
-            if (closes.length < 22) return null;
-            const h = highs.slice(0,-1), l = lows.slice(0,-1), c = closes.slice(0,-1);
-            const { recentHigh, recentLow } = getRecentRange(h, l, 20);
-            const close = closes[closes.length-1];
-            const high = highs[highs.length-1], low = lows[lows.length-1];
-            // Failed Breakout (najwyższy priorytet)
-            if (high > recentHigh && close < recentHigh) return { type:'FAILED_BREAKOUT', dir:'SHORT', level:recentHigh };
-            if (low < recentLow && close > recentLow)   return { type:'FAILED_BREAKOUT', dir:'LONG',  level:recentLow };
-            // Impulse + Pullback
-            if (atrVal && closes.length >= 12) {
-              const move5 = closes[closes.length-1] - closes[closes.length-6];
-              const retrace = closes[closes.length-1] - closes[closes.length-3];
-              if (move5 > atrVal*1.5 && Math.abs(retrace) < Math.abs(move5)*0.5) return { type:'IMPULSE_PULLBACK', dir:'LONG' };
-              if (move5 < -atrVal*1.5 && Math.abs(retrace) < Math.abs(move5)*0.5) return { type:'IMPULSE_PULLBACK', dir:'SHORT' };
-            }
-            // Breakout
-            if (close > recentHigh) return { type:'BREAKOUT', dir:'LONG', level:recentHigh };
-            if (close < recentLow)  return { type:'BREAKOUT', dir:'SHORT', level:recentLow };
-            return null;
-          }
+  const opts = {
+    hostname: 'api.telegram.org',
+    path: `/bot${TG_TOKEN}/sendMessage`,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body)
+    }
+  };
 
-          // ── RISK SCORE ─────────────────────────────────────────────
-          function calcRiskScore({ setup, regime, session, clearPath, overextended, h4trend, d1trend, vix, dxyCorr, instr }) {
-            let risk = 0; const reasons = [];
-            if (overextended) { risk += 20; reasons.push('overextended'); }
-            if (!clearPath)   { risk += 20; reasons.push('brak clear path'); }
-            if (setup.type === 'BREAKOUT' && regime === 'RANGE') { risk += 15; reasons.push('breakout w range'); }
-            if (setup.type === 'IMPULSE_PULLBACK' && regime !== 'TREND') { risk += 12; reasons.push('pullback poza trendem'); }
-            if (setup.type === 'FAILED_BREAKOUT' && regime === 'TREND') { risk += 8; reasons.push('FB vs trend'); }
-            if (!session.overlap && !session.ny && !session.london) { risk += 15; reasons.push('zła sesja'); }
-            if ((setup.dir==='LONG'&&h4trend==='DOWN')||(setup.dir==='SHORT'&&h4trend==='UP')) { risk += 12; reasons.push('H4 przeciwny'); }
-            if ((setup.dir==='LONG'&&d1trend==='DOWN')||(setup.dir==='SHORT'&&d1trend==='UP')) { risk += 8;  reasons.push('D1 przeciwny'); }
-            if (instr.key==='us500' && vix !== null && vix > 30 && setup.dir==='LONG') { risk += 10; reasons.push('wysoki VIX'); }
-            if ((instr.key==='gold'||instr.key==='us500') && dxyCorr !== null) {
-              if (setup.dir==='LONG'  && dxyCorr >  0.3) { risk += 8; reasons.push('DXY konflikt'); }
-              if (setup.dir==='SHORT' && dxyCorr < -0.3) { risk += 8; reasons.push('DXY konflikt'); }
-            }
-            risk = Math.min(100, risk);
-            let band, action, sizeMult;
-            if (risk >= 65)      { band='SKIP';     action='SKIP';  sizeMult=0; }
-            else if (risk >= 45) { band='HIGH';     action='MICRO'; sizeMult=0.25; }
-            else if (risk >= 25) { band='MODERATE'; action='HALF';  sizeMult=0.5; }
-            else                 { band='LOW';      action='FULL';  sizeMult=1.0; }
-            return { risk, band, action, sizeMult, reasons };
-          }
+  return new Promise(resolve => {
+    const req = https.request(opts, res => {
+      res.on('data', () => {});
+      res.on('end', () => resolve());
+    });
+    req.on('error', e => {
+      console.log('TG error:', e.message);
+      resolve();
+    });
+    req.write(body);
+    req.end();
+  });
+}
 
-          function getRegime(adxVal, adxRange=20, adxTrend=25) {
-            if (!adxVal) return 'TRANSITION';
-            if (adxVal < adxRange) return 'RANGE';
-            if (adxVal >= adxTrend) return 'TREND';
-            return 'TRANSITION';
-          }
+// --- INDIKATORY ---
+function ema(data, period) {
+  if (!data || data.length < period) return null;
+  const k = 2 / (period + 1);
+  let value = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < data.length; i++) {
+    value = data[i] * k + value * (1 - k);
+  }
+  return value;
+}
 
-          function buildTradeLevels(setup, price, highs, lows, atrVal, instr) {
-            const isL = setup.dir === 'LONG';
-            const d = instr.dec;
-            const atr = atrVal || instr.sl;
-            let entry, sl;
-            if (setup.type === 'FAILED_BREAKOUT') {
-              entry = parseFloat(price.toFixed(d));
-              sl = isL ? parseFloat((setup.level - atr*0.5).toFixed(d)) : parseFloat((setup.level + atr*0.5).toFixed(d));
-            } else if (setup.type === 'BREAKOUT') {
-              entry = parseFloat(price.toFixed(d));
-              sl = isL ? parseFloat((Math.min(setup.level - atr*0.3, Math.min(...lows.slice(-5)))).toFixed(d))
-                       : parseFloat((Math.max(setup.level + atr*0.3, Math.max(...highs.slice(-5)))).toFixed(d));
-            } else {
-              entry = parseFloat(price.toFixed(d));
-              sl = isL ? parseFloat((Math.min(...lows.slice(-4)) - atr*0.2).toFixed(d))
-                       : parseFloat((Math.max(...highs.slice(-4)) + atr*0.2).toFixed(d));
-            }
-            const r = Math.abs(entry - sl);
-            const tp1 = parseFloat((isL ? entry+r   : entry-r).toFixed(d));
-            const tp2 = parseFloat((isL ? entry+r*2 : entry-r*2).toFixed(d));
-            const tp3 = parseFloat((isL ? entry+r*3 : entry-r*3).toFixed(d));
-            return { entry, sl, tp1, tp2, tp3, r };
-          }
+function atrFn(highs, lows, closes, period = 14) {
+  if (!closes || closes.length < period + 1) return null;
+  const trs = [];
+  for (let i = 1; i < closes.length; i++) {
+    trs.push(Math.max(
+      highs[i] - lows[i],
+      Math.abs(highs[i] - closes[i - 1]),
+      Math.abs(lows[i] - closes[i - 1])
+    ));
+  }
+  return trs.slice(-period).reduce((a,b)=>a+b,0) / period;
+}
 
-          function isSwingLow(lows, idx, w=3) {
-            for (let i=idx-w;i<idx;i++) if(i>=0&&lows[i]<=lows[idx]) return false;
-            for (let i=idx+1;i<=idx+w;i++) if(i<lows.length&&lows[i]<=lows[idx]) return false;
-            return true;
-          }
-          function isSwingHigh(highs, idx, w=3) {
-            for (let i=idx-w;i<idx;i++) if(i>=0&&highs[i]>=highs[idx]) return false;
-            for (let i=idx+1;i<=idx+w;i++) if(i<highs.length&&highs[i]>=highs[idx]) return false;
-            return true;
-          }
-          function checkClearPath(highs, lows, closes, entry, tp1, dir, atrVal) {
-            const minL=Math.min(entry,tp1), maxL=Math.max(entry,tp1), tol=atrVal*0.3;
-            let obstacles=0; const n=Math.min(50,closes.length-4);
-            for (let i=3;i<n-3;i++) {
-              const idx=closes.length-n+i;
-              if(isSwingHigh(highs,idx,3)){const lv=highs[idx];if(lv>minL+tol&&lv<maxL-tol)obstacles++;}
-              if(isSwingLow(lows,idx,3)){const lv=lows[idx];if(lv>minL+tol&&lv<maxL-tol)obstacles++;}
-            }
-            return { clear: obstacles===0, obstacles };
-          }
+function adxFn(highs, lows, closes, period = 14) {
+  if (!closes || closes.length < period * 2) return null;
+  const dmP = [], dmM = [], trL = [];
+  for (let i = 1; i < closes.length; i++) {
+    const up = highs[i] - highs[i - 1];
+    const dn = lows[i - 1] - lows[i];
+    dmP.push(up > dn && up > 0 ? up : 0);
+    dmM.push(dn > up && dn > 0 ? dn : 0);
+    trL.push(Math.max(
+      highs[i] - lows[i],
+      Math.abs(highs[i] - closes[i - 1]),
+      Math.abs(lows[i] - closes[i - 1])
+    ));
+  }
+  let atr = trL.slice(0, period).reduce((a,b)=>a+b,0);
+  let p   = dmP.slice(0, period).reduce((a,b)=>a+b,0);
+  let m   = dmM.slice(0, period).reduce((a,b)=>a+b,0);
+  const dxs = [];
+  for (let i = period; i < trL.length; i++) {
+    atr = atr - atr/period + trL[i];
+    p   = p   - p/period   + dmP[i];
+    m   = m   - m/period   + dmM[i];
+    const dp = atr > 0 ? 100 * p / atr : 0;
+    const dm = atr > 0 ? 100 * m / atr : 0;
+    dxs.push(dp + dm > 0 ? 100 * Math.abs(dp - dm) / (dp + dm) : 0);
+  }
+  if (dxs.length < period) return null;
+  return dxs.slice(-period).reduce((a,b)=>a+b,0) / period;
+}
 
-          function analyzeTrend(closes) {
-            if (!closes || closes.length < 50) return { trend: 'NEUTRAL' };
-            const c = closes.slice(0,-1);
-            const e20=ema(c,20), e50=ema(c,50), price=c[c.length-1];
-            if (e20>e50&&price>e50) return { trend:'UP', e20, e50 };
-            if (e20<e50&&price<e50) return { trend:'DOWN', e20, e50 };
-            return { trend:'NEUTRAL', e20, e50 };
-          }
+// --- LOGIKA SETUPÓW ---
+function detectSetup(closes, highs, lows, atrVal) {
+  if (closes.length < 22) return null;
 
-          function getSession() {
-            const now = new Date();
-            const warsawTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Warsaw' }));
-            const h=warsawTime.getHours(), m=warsawTime.getMinutes(), total=h*60+m;
-            return {
-              h, m, total,
-              str: String(h).padStart(2,'0')+':'+String(m).padStart(2,'0'),
-              asian: total>=120&&total<540, london: total>=540&&total<720,
-              ny: total>=900&&total<1080, overlap: total>=900&&total<1020,
-              active: (total>=480||total<=60), isDailySummary: total>=1310&&total<1320
-            };
-          }
+  const h = highs.slice(0, -1);
+  const l = lows.slice(0, -1);
+  const recentHigh = Math.max(...h.slice(-20));
+  const recentLow  = Math.min(...l.slice(-20));
 
-          const NEWS_RULES = {
-            us500:  { keywords:['Fed','FOMC','CPI','NFP','Nonfarm','GDP','ISM','Unemployment','Retail Sales','PPI'], countries:['USD'], impacts:['High','Medium'] },
-            btc:    { keywords:[], countries:[], impacts:[] },
-            gold:   { keywords:['Fed','FOMC','CPI','NFP','Nonfarm','GDP','Interest Rate','Inflation','PPI'], countries:['USD'], impacts:['High'] },
-            eurusd: { keywords:['Fed','FOMC','CPI','NFP','Nonfarm','GDP','ISM','ECB','Interest Rate','PMI','Inflation','Unemployment'], countries:['USD','EUR'], impacts:['High','Medium'] }
-          };
-          function isBlocking(ev, key) {
-            const rule = NEWS_RULES[key];
-            if (!rule||!rule.countries.includes(ev.country)) return false;
-            if (!rule.impacts.includes(ev.impact)) return false;
-            if (ev.impact==='High') return true;
-            return rule.keywords.some(k => ev.title&&ev.title.toLowerCase().includes(k.toLowerCase()));
-          }
-          async function getNewsBlocked(session) {
-            const blocked = { us500:false, btc:false, gold:false, eurusd:false };
-            try {
-              const data = await fetchUrl('https://nfs.faireconomy.media/ff_calendar_thisweek.json');
-              const todayStr = new Date().toLocaleDateString('en-CA', { timeZone:'Europe/Warsaw' });
-              data.forEach(ev => {
-                if (!ev.date) return;
-                const evWarsaw = new Date(new Date(ev.date).toLocaleString('en-US',{timeZone:'Europe/Warsaw'}));
-                if (evWarsaw.toLocaleDateString('en-CA') !== todayStr) return;
-                const evMin = evWarsaw.getHours()*60+evWarsaw.getMinutes();
-                if (Math.abs(evMin-session.total) > 30) return;
-                Object.keys(blocked).forEach(key => { if(isBlocking(ev,key)){blocked[key]=true;console.log(`NEWS ${key}: ${ev.title}`);}});
-              });
-            } catch (e) { console.log('Calendar failed'); }
-            return blocked;
-          }
+  const close = closes[closes.length - 1];
+  const high  = highs[highs.length - 1];
+  const low   = lows[lows.length  - 1];
 
-          async function fetchYahoo(sym) {
-            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1h&range=30d`;
-            const d = await fetchUrl(url);
-            const res = d?.chart?.result?.[0];
-            if (!res) throw new Error(`Yahoo no data: ${sym}`);
-            const q = res.indicators.quote[0];
-            return {
-              closes: (q.close||[]).filter(v=>v!=null),
-              highs:  (q.high||[]).filter(v=>v!=null),
-              lows:   (q.low||[]).filter(v=>v!=null),
-              price: res.meta.regularMarketPrice, prev: res.meta.previousClose
-            };
-          }
-          async function fetchTD(sym, interval='1h', outputsize=100) {
-            await sleep(600);
-            const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=${interval}&outputsize=${outputsize}&apikey=${TD_KEY}`;
-            const d = await fetchUrl(url);
-            if (d.status==='error') throw new Error(d.message);
-            if (!d.values||d.values.length<2) throw new Error(`TD no data: ${sym}`);
-            const v = d.values;
-            return {
-              closes: v.map(x=>parseFloat(x.close)).reverse(),
-              highs:  v.map(x=>parseFloat(x.high)).reverse(),
-              lows:   v.map(x=>parseFloat(x.low)).reverse(),
-              price: parseFloat(v[0].close), prev: parseFloat(v[1].close)
-            };
-          }
+  // Failed breakout
+  if (high > recentHigh && close < recentHigh)
+    return { type:'FAILED_BREAKOUT', dir:'SHORT', level:recentHigh };
+  if (low  < recentLow  && close > recentLow)
+    return { type:'FAILED_BREAKOUT', dir:'LONG',  level:recentLow  };
 
-          async function checkBreakeven(price, instrKey, instrName, newCache) {
-            const pos = cache.activePositions[instrKey];
-            if (!pos) return;
-            const isL = pos.dir==='LONG';
-            const distTotal = Math.abs(pos.tp1-pos.entry);
-            const distNow = isL ? price-pos.entry : pos.entry-price;
-            const pct = distTotal > 0 ? (distNow/distTotal)*100 : 0;
-            if ((isL&&price>=pos.tp1)||(!isL&&price<=pos.tp1)) {
-              if (!pos.tp1Alerted) {
-                await sendToTelegram('TRADE', `🎯 <b>TP1 — ${instrName}</b>\nCena: <b>${price.toFixed(pos.dec)}</b>\n✅ Zamknij 50% · 🔒 SL → entry: <b>${pos.entry}</b>\nTP2: <b>${pos.tp2}</b>`);
-                newCache.activePositions[instrKey] = {...pos, tp1Alerted:true};
-              }
-            } else if (pct>=50&&!pos.beAlerted) {
-              await sendToTelegram('TRADE', `⚡ <b>BE — ${instrName}</b>\nCena: <b>${price.toFixed(pos.dec)}</b> (${pct.toFixed(0)}% do TP1)\n🔒 Przesuń SL na entry: <b>${pos.entry}</b>`);
-              newCache.activePositions[instrKey] = {...pos, beAlerted:true};
-            } else if ((isL&&price<=pos.sl)||(!isL&&price>=pos.sl)) {
-              await sendToTelegram('TRADE', `❌ <b>SL — ${instrName}</b>\nCena: <b>${price.toFixed(pos.dec)}</b> osiągnęła SL: <b>${pos.sl}</b>`);
-              delete newCache.activePositions[instrKey];
-            }
-          }
+  // Impulse + pullback
+  if (atrVal && closes.length >= 12) {
+    const move5   = closes[closes.length-1] - closes[closes.length-6];
+    const retrace = closes[closes.length-1] - closes[closes.length-3];
+    if (move5 >  atrVal * 1.5 && Math.abs(retrace) < Math.abs(move5)*0.5)
+      return { type:'IMPULSE_PULLBACK', dir:'LONG' };
+    if (move5 < -atrVal * 1.5 && Math.abs(retrace) < Math.abs(move5)*0.5)
+      return { type:'IMPULSE_PULLBACK', dir:'SHORT' };
+  }
 
-          async function main() {
-            const session = getSession();
-            const sessionLabel = session.overlap?'Overlap ⚡':session.ny?'NY Open':session.london?'London':session.asian?'Azja':'Off-session';
-            console.log(`${session.str} | ${sessionLabel}`);
+  // (opcjonalnie można dodać BREAKOUT)
+  return null;
+}
 
-            if (session.isDailySummary) {
-              const log = cache.dailyLog||[];
-              let msg = `📊 <b>Podsumowanie ${session.str}</b>\n\n`;
-              if (log.length) {
-                const uniq = [...new Map(log.map(s=>[`${s.instr}${s.type}${s.dir}`,s])).values()];
-                uniq.slice(0,10).forEach(s=>{msg+=`${s.time} ${s.instr} ${s.cls||s.type} ${s.dir} [risk:${s.risk||'?'}]\n`;});
-              } else { msg += 'Brak sygnałów.'; }
-              await sendToTelegram('SYSTEM', msg);
-              cache.dailyLog = [];
-              fs.writeFileSync('signal-cache.json', JSON.stringify(cache));
-              return;
-            }
+function checkClearPath(highs, lows, entry, tp1, atrVal) {
+  const minL = Math.min(entry, tp1);
+  const maxL = Math.max(entry, tp1);
+  const tol  = (atrVal || 1) * 0.2;
+  let obstacles = 0;
 
-            if (!session.active) { console.log('Poza godzinami'); return; }
+  const start = Math.max(0, highs.length - 30);
+  for (let i = start; i < highs.length; i++) {
+    if (highs[i] > minL + tol && highs[i] < maxL - tol) obstacles++;
+    if (lows[i]  > minL + tol && lows[i]  < maxL - tol) obstacles++;
+  }
+  return obstacles === 0;
+}
 
-            const lastScan = cache.lastScanTime||0;
-            if (lastScan>0 && (Date.now()-lastScan)>35*60*1000 && !isManual)
-              await sendToTelegram('SYSTEM', '⚠️ <b>Trading Monitor</b>: brak skanu przez 35+ min!');
+// --- RISK SCORE + STATUS ---
+function calcRiskScore({ setup, regime, session, clearPath, overextended, vix, instr }) {
+  let risk = 0;
+  const reasons = [];
 
-            const [newsBlocked, vix, dxyData] = await Promise.all([
-              getNewsBlocked(session),
-              (async()=>{ try{const d=await fetchYahoo('%5EVIX');return d.price;}catch(_){return null;} })(),
-              (async()=>{ try{return await fetchYahoo('UUP');}catch(_){return null;} })()
-            ]);
-            const dxyCloses = dxyData ? dxyData.closes : [];
+  if (overextended) { risk += 20; reasons.push('overextended'); }
+  if (!clearPath)   { risk += 20; reasons.push('no clear path'); }
+  if (setup.type === 'FAILED_BREAKOUT' && regime === 'TREND') {
+    risk += 10; reasons.push('FB vs trend');
+  }
+  if (!session.overlap && !session.ny && !session.london) {
+    risk += 15; reasons.push('bad session');
+  }
+  if (instr.key === 'us500' && vix > 30 && setup.dir === 'LONG') {
+    risk += 15; reasons.push('VIX high');
+  }
 
-            const messages = [];
-            const newCache = {...cache, lastScanTime:Date.now()};
-            if (!newCache.dailyLog) newCache.dailyLog = [];
-            if (!newCache.activePositions) newCache.activePositions = {};
+  risk = Math.min(100, risk);
 
-            for (const instr of INSTRUMENTS) {
-              if (newsBlocked[instr.key]) { console.log(`SKIP ${instr.name}: news`); continue; }
-              try {
-                const data = instr.src==='yahoo' ? await fetchYahoo(instr.sym) : await fetchTD(instr.sym,'1h',100);
-                const { closes, highs, lows, price, prev } = data;
+  let band, action;
+  if (risk >= 65)      { band = 'HIGH';      action = 'SKIP';  }
+  else if (risk >= 45) { band = 'ELEVATED';  action = 'WATCH'; }
+  else if (risk >= 25) { band = 'MODERATE';  action = 'WATCH'; }
+  else                 { band = 'LOW';       action = 'TRADE'; }
 
-                await checkBreakeven(price, instr.key, instr.name, newCache);
+  return { risk, band, action, reasons };
+}
 
-                // ── Trend analysis
-                let d1={trend:'NEUTRAL'}, h4={trend:'NEUTRAL'};
-                if (instr.src==='td') {
-                  try { await sleep(500); d1=analyzeTrend((await fetchTD(instr.sym,'1day',60)).closes); } catch(_){}
-                  try { await sleep(500); h4=analyzeTrend((await fetchTD(instr.sym,'4h',60)).closes);   } catch(_){}
-                }
+// --- LIMIT EKSPOZYCJI ---
+// size = ilość kontraktów / lotów, entry = cena
+function applyExposureCap(size, entry) {
+  const positionValue = size * entry;
+  const maxValue      = ACCOUNT_BALANCE * MAX_EXPOSURE;
 
-                const atrVal = atrFn(highs, lows, closes, 14);
-                const adxVal = adxFn(highs, lows, closes, 14);
-                const rsiVal = rsiFn(closes, 14);
-                const regime = getRegime(adxVal, instr.adxMin||20, 25);
-                const overextLong  = atrVal && closes[closes.length-1] > ema(closes,20)+2.5*atrVal;
-                const overextShort = atrVal && closes[closes.length-1] < ema(closes,20)-2.5*atrVal;
+  if (positionValue > maxValue) {
+    const cappedSize = maxValue / entry;
+    return {
+      size:  cappedSize,
+      value: maxValue,
+      capped: true
+    };
+  }
+  return {
+    size,
+    value: positionValue,
+    capped: false
+  };
+}
 
-                let dxyCorr = null;
-                if (dxyCloses.length>=20&&closes.length>=20) dxyCorr=rollingCorr(dxyCloses,closes,20);
+// --- DATA FETCH ---
+async function fetchYahoo(sym) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1h&range=30d`;
+  const d   = await fetchUrl(url);
+  const res = d?.chart?.result?.[0];
+  if (!res) throw new Error('No Yahoo data');
+  const q   = res.indicators.quote[0];
 
-                const chg = prev ? ((price-prev)/prev)*100 : 0;
+  return {
+    closes: (q.close||[]).filter(v=>v!=null),
+    highs:  (q.high ||[]).filter(v=>v!=null),
+    lows:   (q.low  ||[]).filter(v=>v!=null),
+    price:  res.meta.regularMarketPrice,
+    prev:   res.meta.previousClose
+  };
+}
 
-                // ── ETAP A: wykryj trigger
-                const setup = detectSetup(closes, highs, lows, atrVal);
-                if (!setup) {
-                  console.log(`${instr.name} | ${price.toFixed(instr.dec)} | brak setupu | ADX:${adxVal?adxVal.toFixed(1):'?'} | Regime:${regime}`);
-                  newCache[instr.key+'_sig'] = 'NO_SIGNAL';
-                  continue;
-                }
+async function fetchTD(sym, interval='1h', outputsize=100) {
+  await sleep(600);
+  const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=${interval}&outputsize=${outputsize}&apikey=${TD_KEY}`;
+  const d   = await fetchUrl(url);
+  if (d.status === 'error') throw new Error(d.message);
+  const v = d.values;
 
-                // ── ETAP B: clear path
-                const entryEst = parseFloat(price.toFixed(instr.dec));
-                const tp1Est = setup.dir==='LONG' ? entryEst+(atrVal||instr.sl) : entryEst-(atrVal||instr.sl);
-                const pathResult = checkClearPath(highs.slice(0,-1),lows.slice(0,-1),closes.slice(0,-1),entryEst,tp1Est,setup.dir,atrVal||instr.sl);
-                const clearPath = pathResult.clear;
+  return {
+    closes: v.map(x=>parseFloat(x.close)).reverse(),
+    highs:  v.map(x=>parseFloat(x.high)).reverse(),
+    lows:   v.map(x=>parseFloat(x.low)).reverse(),
+    price:  parseFloat(v[0].close),
+    prev:   parseFloat(v[1].close)
+  };
+}
 
-                // ── ETAP C: risk score
-                const overextended = setup.dir==='LONG' ? overextLong : overextShort;
-                const riskData = calcRiskScore({ setup, regime, session, clearPath, overextended, h4trend:h4.trend, d1trend:d1.trend, vix, dxyCorr, instr });
+// --- MAIN ---
+async function main() {
+  const now        = new Date();
+  const warsawTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Warsaw' }));
+  const h          = warsawTime.getHours();
+  const m          = warsawTime.getMinutes();
+  const total      = h*60 + m;
 
-                // ── ETAP D: levels
-                const levels = buildTradeLevels(setup, price, highs, lows, atrVal, instr);
+  const session = {
+    str:      String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0'),
+    overlap:  total>=900 && total<1020,
+    ny:       total>=900 && total<1080,
+    london:   total>=540 && total<720,
+    active:   (total>=480 || total<=60)
+  };
 
-                // ── Trade class
-                const setupEmoji = setup.type==='FAILED_BREAKOUT'?'🪤':setup.type==='BREAKOUT'?'🚀':'📐';
-                let tradeClass, lot;
-                if (riskData.action==='SKIP')        { tradeClass='X'; lot=0; }
-                else if (riskData.band==='LOW')       { tradeClass='A'; lot=instr.lot; }
-                else if (riskData.band==='MODERATE')  { tradeClass='B'; lot=parseFloat((instr.lot*0.5).toFixed(3)); }
-                else                                  { tradeClass='C'; lot=parseFloat((instr.lot*0.25).toFixed(3)); }
+  console.log('Session', session.str);
 
-                console.log(`${instr.name} | ${price.toFixed(instr.dec)} | ${setup.type} ${setup.dir} | Regime:${regime} | Risk:${riskData.risk}(${riskData.band}) | Class:${tradeClass} | ADX:${adxVal?adxVal.toFixed(1):'?'}`);
+  if (!session.active && !isManual) {
+    console.log('Outside active hours – skip');
+    return;
+  }
 
-                newCache.dailyLog.push({ time:session.str, instr:instr.name, type:tradeClass==='X'?'SKIP':'ACTIVE', cls:tradeClass, dir:setup.dir, risk:riskData.risk });
-                newCache[instr.key+'_sig'] = tradeClass;
+  const [vix] = await Promise.all([
+    (async()=>{ try{ const d=await fetchYahoo('%5EVIX'); return d.price; } catch(_){ return 20; } })()
+  ]);
 
-                if (tradeClass==='X') {
-                  // Pokaż zablokowany setup jeśli nowy
-                  const prevSig = cache[instr.key+'_sig'];
-                  if (prevSig !== 'X') {
-                    messages.push(
-                      `🚫 <b>ZABLOKOWANY ${setupEmoji} ${setup.type} ${setup.dir==='LONG'?'▲':'▼'} ${instr.name}</b>\n` +
-                      `Powód: ${riskData.reasons.join(', ')}\n` +
-                      `Setup wykryty — risk ${riskData.risk} zbyt wysoki`
-                    );
-                  }
-                  continue;
-                }
+  const newCache = {...cache, lastScanTime: Date.now()};
+  const messages = [];
 
-                const prevSig = cache[instr.key+'_sig'];
-                if (prevSig === tradeClass && prevSig !== 'NO_SIGNAL') { console.log(`${instr.name}: bez zmiany (${tradeClass})`); continue; }
+  for (const instr of INSTRUMENTS) {
+    try {
+      const data  = instr.src === 'yahoo'
+        ? await fetchYahoo(instr.sym)
+        : await fetchTD(instr.sym, '1h', 100);
 
-                const rr = levels.r > 0 ? (Math.abs(levels.tp2-levels.entry)/levels.r).toFixed(1) : '2.0';
-                const tp3line = riskData.band==='LOW' ? `TP3 (runner): <b>${levels.tp3}</b>\n` : '';
+      const { closes, highs, lows, price, prev } = data;
 
-                messages.push(
-                  `${tradeClass==='A'?'⚡ A-TRADE':tradeClass==='B'?'📊 B-TRADE':'⚠️ C-TRADE'} ${setupEmoji} <b>${setup.dir==='LONG'?'LONG ▲':'SHORT ▼'} ${instr.name}</b>\n` +
-                  `Setup: ${setup.type.replace('_',' ')}\n` +
-                  `Cena: ${price.toFixed(instr.dec)} (${chg>=0?'+':''}${chg.toFixed(2)}%)\n\n` +
-                  `Entry: <b>${levels.entry}</b>\n` +
-                  `SL: <b>${levels.sl}</b> · Lot: ${lot}\n` +
-                  `TP1 (50%): <b>${levels.tp1}</b> → SL na entry\n` +
-                  `TP2 (50%): <b>${levels.tp2}</b> · R:R 1:${rr}\n` +
-                  tp3line +
-                  `\nRisk: ${riskData.risk} (${riskData.band}) · Regime: ${regime}\n` +
-                  `D1: ${d1.trend} · H4: ${h4.trend} · RSI: ${rsiVal?rsiVal.toFixed(1):'?'}\n` +
-                  `${sessionLabel}` +
-                  (riskData.reasons.length ? `\n⚠️ ${riskData.reasons.join(', ')}` : '')
-                );
+      const atrVal = atrFn(highs, lows, closes, 14);
+      const adxVal = adxFn(highs, lows, closes, 14);
+      const regime = (adxVal || 0) > (instr.adxMin || 20) ? 'TREND' : 'RANGE';
 
-                newCache.activePositions[instr.key] = { dir:setup.dir, entry:levels.entry, sl:levels.sl, tp1:levels.tp1, tp2:levels.tp2, dec:instr.dec, beAlerted:false, tp1Alerted:false };
+      const setup = detectSetup(closes, highs, lows, atrVal);
 
-              } catch (e) { console.error(`${instr.name}: ${e.message}`); }
-            }
+      // --- RADAR STATUS ---
+      let radarStatus = 'SCANNING';
+      let radarScore  = 50;
 
-            fs.writeFileSync('signal-cache.json', JSON.stringify(newCache));
+      if (setup) {
+        radarStatus = 'WATCH';
+        radarScore  = 70;
+      }
 
-            if (messages.length > 0) {
-              await sendToTelegram('SETUP', `📡 <b>System O ${session.str}</b> · ${sessionLabel}\n\n` + messages.join('\n\n─────\n\n'));
-              console.log(`Wysłano ${messages.length} wiadomości`);
-            } else if (isManual) {
-              await sendToTelegram('SYSTEM', `✅ Ręczny skan ${session.str}: brak nowych setupów.`);
-            } else {
-              console.log('Brak nowych setupów');
-            }
-          }
+      newCache.radar[instr.key] = {
+        name:   instr.name,
+        status: radarStatus,
+        score:  radarScore,
+        regime,
+        price:  price.toFixed(instr.dec),
+        ts:     Date.now()
+      };
 
-          main().catch(async e => {
-            console.error('FATAL:', e.message);
-            try { await sendToTelegram('SYSTEM', `❌ <b>Trading Monitor BŁĄD</b>: ${e.message}`); } catch(_){}
-            process.exit(1);
-          });
-          SCRIPT
+      if (!setup) {
+        console.log(`${instr.name}: no setup`);
+        continue;
+      }
 
-      - name: Scan markets and send Telegram
-        run: node .github/scripts/scan-runner.js
-        env:
-          TD_KEY: ${{ secrets.TD_KEY }}
-          TG_TOKEN: ${{ secrets.TG_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          TG_THREAD_SETUPS: ${{ secrets.TG_THREAD_SETUPS }}
-          TG_THREAD_TRADES: ${{ secrets.TG_THREAD_TRADES }}
-          TG_THREAD_SYSTEM: ${{ secrets.TG_THREAD_SYSTEM }}
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
+      // --- RYZYKO + CLEAR PATH ---
+      const tp1Est     = setup.dir === 'LONG' ? price + atrVal : price - atrVal;
+      const clearPath  = checkClearPath(highs, lows, price, tp1Est, atrVal);
+      const overextend = false; // placeholder – możesz dodać logikę na ATR/EMA
 
-      - name: Save signal cache
-        uses: actions/cache/save@v4
-        if: always()
-        with:
-          path: signal-cache.json
-          key: signals-${{ github.run_id }}
+      const riskData = calcRiskScore({
+        setup,
+        regime,
+        session,
+        clearPath,
+        overextended: overextend,
+        vix,
+        instr
+      });
+
+      // Update radar z dokładniejszym statusem
+      if (riskData.action === 'SKIP') {
+        newCache.radar[instr.key].status = 'SKIP';
+        newCache.radar[instr.key].score  = 40;
+      } else if (riskData.band === 'LOW') {
+        newCache.radar[instr.key].status = 'TRIGGER';
+        newCache.radar[instr.key].score  = 90;
+      } else {
+        newCache.radar[instr.key].status = 'WATCH';
+        newCache.radar[instr.key].score  = 75;
+      }
+
+      // --- SIZING + LIMIT EXPOSURE ---
+      // bazowy size z risk per trade (np. 1% equity / SL)
+      const riskPct   = 0.01; // 1% na trade – możesz później zrobić param
+      const riskUsd   = ACCOUNT_BALANCE * riskPct;
+      const slDollar  = instr.sl;
+      const rawSize   = slDollar > 0 ? (riskUsd / slDollar) : instr.lot;
+
+      const { size, value, capped } = applyExposureCap(rawSize, price);
+
+      // redukcja w zależności od band
+      let finalSize = size;
+      if (riskData.band === 'MODERATE') finalSize = size * 0.5;
+      if (riskData.band === 'ELEVATED') finalSize = size * 0.25;
+
+      // --- DECYZJA / ALERT ---
+      if (riskData.action === 'SKIP') {
+        console.log(`${instr.name}: setup SKIP, risk ${riskData.risk}`);
+        continue;
+      }
+
+      const chg = prev ? ((price - prev) / prev * 100).toFixed(2) : '?';
+
+      const msg =
+        `<b>${riskData.band}-RISK ${setup.type} ${setup.dir} ${instr.name}</b>\n` +
+        `Cena: ${price.toFixed(instr.dec)} (${chg}%)\n` +
+        `Size: ${finalSize.toFixed(3)} (raw ${size.toFixed(3)}) ${capped ? '(CAPPED 1x)' : ''}\n` +
+        `Value: $${value.toFixed(0)} / Equity: $${ACCOUNT_BALANCE}\n` +
+        `Regime: ${regime} · Risk: ${riskData.risk}\n` +
+        (riskData.reasons.length ? `⚠️ ${riskData.reasons.join(', ')}` : '');
+
+      messages.push(msg);
+
+    } catch (e) {
+      console.log(`Err ${instr.name}:`, e.message);
+    }
+  }
+
+  fs.writeFileSync('signal-cache.json', JSON.stringify(newCache, null, 2));
+
+  if (messages.length > 0) {
+    await sendToTelegram('SETUP', messages.join('\n\n─────\n\n'));
+    console.log('Messages sent:', messages.length);
+  } else if (isManual) {
+    await sendToTelegram('SYSTEM', `✅ Manual scan ${new Date().toISOString()} – no new setups.`);
+  } else {
+    console.log('No new setups');
+  }
+}
+
+main().catch(async e => {
+  console.error('FATAL:', e);
+  try {
+    await sendToTelegram('SYSTEM', `❌ Trading Monitor error: ${e.message}`);
+  } catch {}
+  process.exit(1);
+});
