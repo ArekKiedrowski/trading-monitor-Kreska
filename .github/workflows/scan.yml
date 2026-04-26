@@ -1,87 +1,46 @@
 const https = require('https');
 const fs = require('fs');
 
-// --- KONFIGURACJA SYSTEMOWA ---
-const MAX_EXPOSURE = 1.0;           // Hard cap: 1x equity
-const ACCOUNT_BALANCE = 10000;      // Fallback, real value najlepiej z GHA secrets / ENV
-
-const TD_KEY = process.env.TD_KEY;
+// ================= CONFIG =================
 const TG_TOKEN = process.env.TG_TOKEN;
 const TG_CHAT_ID = process.env.TG_CHAT_ID;
-const TG_THREADS = {
-  SETUP: Number(process.env.TG_THREAD_SETUPS || '2'),
-  TRADE: Number(process.env.TG_THREAD_TRADES || '3'),
-  SYSTEM: Number(process.env.TG_THREAD_SYSTEM || '4'),
-};
-const isManual = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch';
+const ACCOUNT_BALANCE = parseFloat(process.env.ACCOUNT_BALANCE || 10000);
 
-// --- INSTRUMENTY ---
+const TG_THREADS = { SETUP: 2, TRADE: 3, SYSTEM: 4 };
+
 const INSTRUMENTS = [
-  {key:'us500',  name:'US500',  sym:'ES=F',    src:'yahoo', sl:20,     tp:40,     dec:1, lot:0.05,  atrPctMin:0.15, adxMin:22},
-  {key:'btc',    name:'BTC',    sym:'BTC-USD', src:'yahoo', sl:500,    tp:1500,   dec:0, lot:0.001, atrPctMin:0.50, adxMin:18},
-  {key:'gold',   name:'GOLD',   sym:'XAU/USD', src:'td',    sl:25,     tp:50,     dec:1, lot:0.05,  atrPctMin:0.20, adxMin:20},
-  {key:'eurusd', name:'EURUSD', sym:'EUR/USD', src:'td',    sl:0.0015, tp:0.003,  dec:5, lot:0.05,  atrPctMin:0.10, adxMin:18}
+  { key: 'btc', name: 'BTC', sym: 'BTC-USD', dec: 2, minRR: 4, market: 'CRYPTO' },
+  { key: 'tsla', name: 'TSLA', sym: 'TSLA', dec: 2, minRR: 4, market: 'TECH' },
+  { key: 'nvda', name: 'NVDA', sym: 'NVDA', dec: 2, minRR: 4, market: 'TECH' },
+  { key: 'goog', name: 'GOOG', sym: 'GOOG', dec: 2, minRR: 3, market: 'TECH' }
 ];
 
-// --- CACHE ---
-let cache = {};
+// ================= CACHE =================
+let cache = { pendingSetups: {}, activePositions: {} };
 try {
   if (fs.existsSync('signal-cache.json')) {
     cache = JSON.parse(fs.readFileSync('signal-cache.json', 'utf8'));
-    console.log('Cache loaded');
   }
-} catch (e) {
-  console.log('Cache init error', e.message);
+} catch {}
+
+// ================= HELPERS =================
+function log(msg) {
+  const t = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  console.log(`[${t}] ${msg}`);
 }
 
-if (isManual) {
-  cache = {};
-  console.log('Manual run - cache cleared');
-}
-if (!cache.dailyLog)        cache.dailyLog        = [];
-if (!cache.activePositions) cache.activePositions = {};
-if (!cache.radar)           cache.radar           = {};
-
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-// --- HTTP / TELEGRAM ---
-function fetchUrl(url, retries = 2) {
-  return new Promise((resolve, reject) => {
-    const attempt = (n) => {
-      https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, res => {
-        let data = '';
-        res.on('data', c => data += c);
-        res.on('end', () => {
-          try { resolve(JSON.parse(data)); }
-          catch (e) {
-            if (n > 0) setTimeout(() => attempt(n - 1), 3000);
-            else reject(new Error('Parse fail: ' + e.message));
-          }
-        });
-      }).on('error', e => {
-        if (n > 0) setTimeout(() => attempt(n - 1), 3000);
-        else reject(e);
-      });
-    };
-    attempt(retries);
-  });
+function money(v, d = 2) {
+  return Number(v).toFixed(d);
 }
 
-function sendToTelegram(topicType, message) {
-  if (!TG_TOKEN || !TG_CHAT_ID) {
-    console.log('TG skipped (missing token/chat_id)');
-    return Promise.resolve();
-  }
-  const threadId = TG_THREADS[topicType] || null;
-  const prefix =
-    topicType === 'SETUP' ? '<b>[🔥 SETUP]</b>\n' :
-    topicType === 'TRADE' ? '<b>[📊 TRADE]</b>\n' :
-                            '<b>[⚙️ SYSTEM]</b>\n';
+// ================= TELEGRAM =================
+async function sendTG(type, message) {
+  if (!TG_TOKEN || !TG_CHAT_ID) return;
 
   const body = JSON.stringify({
     chat_id: TG_CHAT_ID,
-    message_thread_id: threadId,
-    text: prefix + message,
+    message_thread_id: TG_THREADS[type],
+    text: message,
     parse_mode: 'HTML'
   });
 
@@ -95,34 +54,64 @@ function sendToTelegram(topicType, message) {
     }
   };
 
-  return new Promise(resolve => {
-    const req = https.request(opts, res => {
-      res.on('data', () => {});
-      res.on('end', () => resolve());
-    });
-    req.on('error', e => {
-      console.log('TG error:', e.message);
-      resolve();
-    });
+  return new Promise(res => {
+    const req = https.request(opts, () => res());
+    req.on('error', () => res());
     req.write(body);
     req.end();
   });
 }
 
-// --- INDIKATORY ---
-function ema(data, period) {
-  if (!data || data.length < period) return null;
-  const k = 2 / (period + 1);
-  let value = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  for (let i = period; i < data.length; i++) {
-    value = data[i] * k + value * (1 - k);
-  }
-  return value;
+async function notify(type, message, instr) {
+  log(`[${instr}] ${message.replace(/<[^>]*>/g, '')}`);
+  await sendTG(type, message);
 }
 
-function atrFn(highs, lows, closes, period = 14) {
-  if (!closes || closes.length < period + 1) return null;
-  const trs = [];
+// ================= DATA =================
+async function fetchYahoo(sym) {
+  return new Promise((resolve, reject) => {
+    https.get(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1h&range=60d`,
+      res => {
+        let d = '';
+        res.on('data', c => (d += c));
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(d).chart.result[0]);
+          } catch {
+            reject();
+          }
+        });
+      }
+    ).on('error', reject);
+  });
+}
+
+function candlesFromRaw(r) {
+  const q = r.indicators.quote[0];
+  const t = r.timestamp;
+  const out = [];
+
+  for (let i = 0; i < t.length; i++) {
+    if (q.close[i] && q.high[i] && q.low[i] && q.open[i]) {
+      out.push({ t: t[i], o: q.open[i], h: q.high[i], l: q.low[i], c: q.close[i] });
+    }
+  }
+  return out;
+}
+
+// ================= INDICATORS =================
+function ema(data, period) {
+  const k = 2 / (period + 1);
+  let val = data[0];
+  for (let i = 1; i < data.length; i++) {
+    val = data[i] * k + val * (1 - k);
+  }
+  return val;
+}
+
+function atr(highs, lows, closes, p = 14) {
+  let trs = [];
   for (let i = 1; i < closes.length; i++) {
     trs.push(Math.max(
       highs[i] - lows[i],
@@ -130,315 +119,130 @@ function atrFn(highs, lows, closes, period = 14) {
       Math.abs(lows[i] - closes[i - 1])
     ));
   }
-  return trs.slice(-period).reduce((a,b)=>a+b,0) / period;
+  return trs.slice(-p).reduce((a, b) => a + b, 0) / p;
 }
 
-function adxFn(highs, lows, closes, period = 14) {
-  if (!closes || closes.length < period * 2) return null;
-  const dmP = [], dmM = [], trL = [];
-  for (let i = 1; i < closes.length; i++) {
-    const up = highs[i] - highs[i - 1];
-    const dn = lows[i - 1] - lows[i];
-    dmP.push(up > dn && up > 0 ? up : 0);
-    dmM.push(dn > up && dn > 0 ? dn : 0);
-    trL.push(Math.max(
-      highs[i] - lows[i],
-      Math.abs(highs[i] - closes[i - 1]),
-      Math.abs(lows[i] - closes[i - 1])
-    ));
-  }
-  let atr = trL.slice(0, period).reduce((a,b)=>a+b,0);
-  let p   = dmP.slice(0, period).reduce((a,b)=>a+b,0);
-  let m   = dmM.slice(0, period).reduce((a,b)=>a+b,0);
-  const dxs = [];
-  for (let i = period; i < trL.length; i++) {
-    atr = atr - atr/period + trL[i];
-    p   = p   - p/period   + dmP[i];
-    m   = m   - m/period   + dmM[i];
-    const dp = atr > 0 ? 100 * p / atr : 0;
-    const dm = atr > 0 ? 100 * m / atr : 0;
-    dxs.push(dp + dm > 0 ? 100 * Math.abs(dp - dm) / (dp + dm) : 0);
-  }
-  if (dxs.length < period) return null;
-  return dxs.slice(-period).reduce((a,b)=>a+b,0) / period;
+// ================= LOGIC =================
+function detectTrend(c) {
+  const closes = c.map(x => x.c);
+  const ema50 = ema(closes.slice(-60), 50);
+  const ema200 = ema(closes.slice(-220), 200);
+
+  if (closes.at(-1) > ema50 && ema50 > ema200) return true;
+  return false;
 }
 
-// --- LOGIKA SETUPÓW ---
-function detectSetup(closes, highs, lows, atrVal) {
-  if (closes.length < 22) return null;
+function detectBoneZone(c) {
+  const closes = c.map(x => x.c);
+  const ema9 = ema(closes.slice(-20), 9);
+  const ema20 = ema(closes.slice(-40), 20);
+  const price = closes.at(-1);
 
-  const h = highs.slice(0, -1);
-  const l = lows.slice(0, -1);
-  const recentHigh = Math.max(...h.slice(-20));
-  const recentLow  = Math.min(...l.slice(-20));
-
-  const close = closes[closes.length - 1];
-  const high  = highs[highs.length - 1];
-  const low   = lows[lows.length  - 1];
-
-  // Failed breakout
-  if (high > recentHigh && close < recentHigh)
-    return { type:'FAILED_BREAKOUT', dir:'SHORT', level:recentHigh };
-  if (low  < recentLow  && close > recentLow)
-    return { type:'FAILED_BREAKOUT', dir:'LONG',  level:recentLow  };
-
-  // Impulse + pullback
-  if (atrVal && closes.length >= 12) {
-    const move5   = closes[closes.length-1] - closes[closes.length-6];
-    const retrace = closes[closes.length-1] - closes[closes.length-3];
-    if (move5 >  atrVal * 1.5 && Math.abs(retrace) < Math.abs(move5)*0.5)
-      return { type:'IMPULSE_PULLBACK', dir:'LONG' };
-    if (move5 < -atrVal * 1.5 && Math.abs(retrace) < Math.abs(move5)*0.5)
-      return { type:'IMPULSE_PULLBACK', dir:'SHORT' };
-  }
-
-  // (opcjonalnie można dodać BREAKOUT)
-  return null;
+  return price < ema9 && price > ema20;
 }
 
-function checkClearPath(highs, lows, entry, tp1, atrVal) {
-  const minL = Math.min(entry, tp1);
-  const maxL = Math.max(entry, tp1);
-  const tol  = (atrVal || 1) * 0.2;
-  let obstacles = 0;
+function detectTrigger(c) {
+  const prevHigh = c.at(-2).h;
+  const last = c.at(-1);
 
-  const start = Math.max(0, highs.length - 30);
-  for (let i = start; i < highs.length; i++) {
-    if (highs[i] > minL + tol && highs[i] < maxL - tol) obstacles++;
-    if (lows[i]  > minL + tol && lows[i]  < maxL - tol) obstacles++;
-  }
-  return obstacles === 0;
+  const body = Math.abs(last.c - last.o);
+  const range = last.h - last.l;
+  const bodyRatio = body / range;
+
+  return last.c > prevHigh && bodyRatio > 0.45;
 }
 
-// --- RISK SCORE + STATUS ---
-function calcRiskScore({ setup, regime, session, clearPath, overextended, vix, instr }) {
-  let risk = 0;
-  const reasons = [];
+// ================= POSITION SIZE =================
+function calcSize(balance, risk, entry, sl) {
+  const riskUSD = balance * risk;
+  const riskPerUnit = Math.abs(entry - sl);
 
-  if (overextended) { risk += 20; reasons.push('overextended'); }
-  if (!clearPath)   { risk += 20; reasons.push('no clear path'); }
-  if (setup.type === 'FAILED_BREAKOUT' && regime === 'TREND') {
-    risk += 10; reasons.push('FB vs trend');
-  }
-  if (!session.overlap && !session.ny && !session.london) {
-    risk += 15; reasons.push('bad session');
-  }
-  if (instr.key === 'us500' && vix > 30 && setup.dir === 'LONG') {
-    risk += 15; reasons.push('VIX high');
-  }
-
-  risk = Math.min(100, risk);
-
-  let band, action;
-  if (risk >= 65)      { band = 'HIGH';      action = 'SKIP';  }
-  else if (risk >= 45) { band = 'ELEVATED';  action = 'WATCH'; }
-  else if (risk >= 25) { band = 'MODERATE';  action = 'WATCH'; }
-  else                 { band = 'LOW';       action = 'TRADE'; }
-
-  return { risk, band, action, reasons };
-}
-
-// --- LIMIT EKSPOZYCJI ---
-// size = ilość kontraktów / lotów, entry = cena
-function applyExposureCap(size, entry) {
-  const positionValue = size * entry;
-  const maxValue      = ACCOUNT_BALANCE * MAX_EXPOSURE;
-
-  if (positionValue > maxValue) {
-    const cappedSize = maxValue / entry;
-    return {
-      size:  cappedSize,
-      value: maxValue,
-      capped: true
-    };
-  }
+  const size = riskUSD / riskPerUnit;
   return {
     size,
-    value: positionValue,
-    capped: false
+    value: size * entry,
+    riskUSD
   };
 }
 
-// --- DATA FETCH ---
-async function fetchYahoo(sym) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1h&range=30d`;
-  const d   = await fetchUrl(url);
-  const res = d?.chart?.result?.[0];
-  if (!res) throw new Error('No Yahoo data');
-  const q   = res.indicators.quote[0];
-
-  return {
-    closes: (q.close||[]).filter(v=>v!=null),
-    highs:  (q.high ||[]).filter(v=>v!=null),
-    lows:   (q.low  ||[]).filter(v=>v!=null),
-    price:  res.meta.regularMarketPrice,
-    prev:   res.meta.previousClose
-  };
+// ================= SCORE =================
+function scoreSetup({ trend, bone, trigger }) {
+  let s = 0;
+  if (trend) s += 30;
+  if (bone) s += 30;
+  if (trigger) s += 30;
+  return s;
 }
 
-async function fetchTD(sym, interval='1h', outputsize=100) {
-  await sleep(600);
-  const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=${interval}&outputsize=${outputsize}&apikey=${TD_KEY}`;
-  const d   = await fetchUrl(url);
-  if (d.status === 'error') throw new Error(d.message);
-  const v = d.values;
-
-  return {
-    closes: v.map(x=>parseFloat(x.close)).reverse(),
-    highs:  v.map(x=>parseFloat(x.high)).reverse(),
-    lows:   v.map(x=>parseFloat(x.low)).reverse(),
-    price:  parseFloat(v[0].close),
-    prev:   parseFloat(v[1].close)
-  };
+function gradeFromScore(score) {
+  if (score >= 85) return { grade: 'A+', risk: 0.10 };
+  if (score >= 70) return { grade: 'A', risk: 0.06 };
+  if (score >= 55) return { grade: 'WATCH', risk: 0 };
+  return { grade: 'INVALID', risk: 0 };
 }
 
-// --- MAIN ---
-async function main() {
-  const now        = new Date();
-  const warsawTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Warsaw' }));
-  const h          = warsawTime.getHours();
-  const m          = warsawTime.getMinutes();
-  const total      = h*60 + m;
+// ================= CORE =================
+async function scan(instr) {
+  const raw = await fetchYahoo(instr.sym);
+  const candles = candlesFromRaw(raw);
 
-  const session = {
-    str:      String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0'),
-    overlap:  total>=900 && total<1020,
-    ny:       total>=900 && total<1080,
-    london:   total>=540 && total<720,
-    active:   (total>=480 || total<=60)
-  };
+  if (candles.length < 200) return;
 
-  console.log('Session', session.str);
+  const closes = candles.map(c => c.c);
+  const highs = candles.map(c => c.h);
+  const lows = candles.map(c => c.l);
 
-  if (!session.active && !isManual) {
-    console.log('Outside active hours – skip');
-    return;
+  const atrVal = atr(highs, lows, closes);
+  const price = closes.at(-1);
+
+  const trend = detectTrend(candles);
+  const bone = detectBoneZone(candles);
+  const trigger = detectTrigger(candles);
+
+  const score = scoreSetup({ trend, bone, trigger });
+  const { grade, risk } = gradeFromScore(score);
+
+  log(`[SCAN] ${instr.name} | Score ${score} | ${grade}`);
+
+  if (grade === 'INVALID') return;
+
+  if (trigger) {
+    const sl = candles.slice(-10).reduce((m, c) => Math.min(m, c.l), 999999);
+    const tp = price + (price - sl) * instr.minRR;
+
+    const pos = calcSize(ACCOUNT_BALANCE, risk, price, sl);
+
+    await notify(
+      'SETUP',
+      `🚀 <b>${instr.name}</b>\nGrade: ${grade}\nScore: ${score}\n\nEntry: ${money(price)}\nSL: ${money(sl)}\nTP: ${money(tp)}\n\nSize: ${money(pos.size, 4)}\nValue: $${money(pos.value, 0)}\nRisk: $${money(pos.riskUSD, 0)}`,
+      instr.name
+    );
+
+    cache.pendingSetups[instr.key] = {
+      entry: price,
+      sl,
+      tp,
+      grade,
+      score
+    };
   }
+}
 
-  const [vix] = await Promise.all([
-    (async()=>{ try{ const d=await fetchYahoo('%5EVIX'); return d.price; } catch(_){ return 20; } })()
-  ]);
-
-  const newCache = {...cache, lastScanTime: Date.now()};
-  const messages = [];
+// ================= MAIN =================
+async function main() {
+  log('--- SYSTEM O v4.2 START ---');
 
   for (const instr of INSTRUMENTS) {
+    process.stdout.write(`[SCANNING] ${instr.name}... `);
     try {
-      const data  = instr.src === 'yahoo'
-        ? await fetchYahoo(instr.sym)
-        : await fetchTD(instr.sym, '1h', 100);
-
-      const { closes, highs, lows, price, prev } = data;
-
-      const atrVal = atrFn(highs, lows, closes, 14);
-      const adxVal = adxFn(highs, lows, closes, 14);
-      const regime = (adxVal || 0) > (instr.adxMin || 20) ? 'TREND' : 'RANGE';
-
-      const setup = detectSetup(closes, highs, lows, atrVal);
-
-      // --- RADAR STATUS ---
-      let radarStatus = 'SCANNING';
-      let radarScore  = 50;
-
-      if (setup) {
-        radarStatus = 'WATCH';
-        radarScore  = 70;
-      }
-
-      newCache.radar[instr.key] = {
-        name:   instr.name,
-        status: radarStatus,
-        score:  radarScore,
-        regime,
-        price:  price.toFixed(instr.dec),
-        ts:     Date.now()
-      };
-
-      if (!setup) {
-        console.log(`${instr.name}: no setup`);
-        continue;
-      }
-
-      // --- RYZYKO + CLEAR PATH ---
-      const tp1Est     = setup.dir === 'LONG' ? price + atrVal : price - atrVal;
-      const clearPath  = checkClearPath(highs, lows, price, tp1Est, atrVal);
-      const overextend = false; // placeholder – możesz dodać logikę na ATR/EMA
-
-      const riskData = calcRiskScore({
-        setup,
-        regime,
-        session,
-        clearPath,
-        overextended: overextend,
-        vix,
-        instr
-      });
-
-      // Update radar z dokładniejszym statusem
-      if (riskData.action === 'SKIP') {
-        newCache.radar[instr.key].status = 'SKIP';
-        newCache.radar[instr.key].score  = 40;
-      } else if (riskData.band === 'LOW') {
-        newCache.radar[instr.key].status = 'TRIGGER';
-        newCache.radar[instr.key].score  = 90;
-      } else {
-        newCache.radar[instr.key].status = 'WATCH';
-        newCache.radar[instr.key].score  = 75;
-      }
-
-      // --- SIZING + LIMIT EXPOSURE ---
-      // bazowy size z risk per trade (np. 1% equity / SL)
-      const riskPct   = 0.01; // 1% na trade – możesz później zrobić param
-      const riskUsd   = ACCOUNT_BALANCE * riskPct;
-      const slDollar  = instr.sl;
-      const rawSize   = slDollar > 0 ? (riskUsd / slDollar) : instr.lot;
-
-      const { size, value, capped } = applyExposureCap(rawSize, price);
-
-      // redukcja w zależności od band
-      let finalSize = size;
-      if (riskData.band === 'MODERATE') finalSize = size * 0.5;
-      if (riskData.band === 'ELEVATED') finalSize = size * 0.25;
-
-      // --- DECYZJA / ALERT ---
-      if (riskData.action === 'SKIP') {
-        console.log(`${instr.name}: setup SKIP, risk ${riskData.risk}`);
-        continue;
-      }
-
-      const chg = prev ? ((price - prev) / prev * 100).toFixed(2) : '?';
-
-      const msg =
-        `<b>${riskData.band}-RISK ${setup.type} ${setup.dir} ${instr.name}</b>\n` +
-        `Cena: ${price.toFixed(instr.dec)} (${chg}%)\n` +
-        `Size: ${finalSize.toFixed(3)} (raw ${size.toFixed(3)}) ${capped ? '(CAPPED 1x)' : ''}\n` +
-        `Value: $${value.toFixed(0)} / Equity: $${ACCOUNT_BALANCE}\n` +
-        `Regime: ${regime} · Risk: ${riskData.risk}\n` +
-        (riskData.reasons.length ? `⚠️ ${riskData.reasons.join(', ')}` : '');
-
-      messages.push(msg);
-
+      await scan(instr);
+      process.stdout.write('DONE\n');
     } catch (e) {
-      console.log(`Err ${instr.name}:`, e.message);
+      process.stdout.write('FAIL\n');
     }
   }
 
-  fs.writeFileSync('signal-cache.json', JSON.stringify(newCache, null, 2));
-
-  if (messages.length > 0) {
-    await sendToTelegram('SETUP', messages.join('\n\n─────\n\n'));
-    console.log('Messages sent:', messages.length);
-  } else if (isManual) {
-    await sendToTelegram('SYSTEM', `✅ Manual scan ${new Date().toISOString()} – no new setups.`);
-  } else {
-    console.log('No new setups');
-  }
+  fs.writeFileSync('signal-cache.json', JSON.stringify(cache));
 }
 
-main().catch(async e => {
-  console.error('FATAL:', e);
-  try {
-    await sendToTelegram('SYSTEM', `❌ Trading Monitor error: ${e.message}`);
-  } catch {}
-  process.exit(1);
-});
+main();
