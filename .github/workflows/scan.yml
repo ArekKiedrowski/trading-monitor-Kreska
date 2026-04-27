@@ -24,7 +24,7 @@ jobs:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: |
-          node << 'SCRIPT'
+          node <<'SCRIPT'
           const https = require('https');
           const fs = require('fs');
 
@@ -82,7 +82,10 @@ jobs:
               return Promise.resolve();
             }
 
-            const body = JSON.stringify({ chat_id: TG_CHAT_ID, text: msg });
+            const body = JSON.stringify({
+              chat_id: TG_CHAT_ID,
+              text: msg
+            });
 
             const opts = {
               hostname: 'api.telegram.org',
@@ -99,7 +102,9 @@ jobs:
                 let data = '';
                 res.on('data', c => data += c);
                 res.on('end', () => {
-                  if (res.statusCode >= 400) log('[TG ERROR] ' + res.statusCode + ' ' + data);
+                  if (res.statusCode >= 400) {
+                    log('[TG ERROR] ' + res.statusCode + ' ' + data);
+                  }
                   resolve();
                 });
               });
@@ -116,7 +121,13 @@ jobs:
 
           function fetchData(sym) {
             return new Promise((resolve, reject) => {
-              const url = 'https://api.twelvedata.com/time_series?symbol=' + encodeURIComponent(sym) + '&interval=1h&outputsize=200&apikey=' + TD_KEY;
+              if (!TD_KEY) return reject(new Error('Missing TD_KEY'));
+
+              const url =
+                'https://api.twelvedata.com/time_series?symbol=' +
+                encodeURIComponent(sym) +
+                '&interval=1h&outputsize=200&apikey=' +
+                TD_KEY;
 
               https.get(url, res => {
                 let d = '';
@@ -125,20 +136,29 @@ jobs:
                   try {
                     const j = JSON.parse(d);
 
-                    if (j.status === 'error') return reject(new Error(j.message || 'Twelve Data error'));
-                    if (!j.values || !Array.isArray(j.values)) return reject(new Error('No Twelve Data values'));
+                    if (j.status === 'error') {
+                      return reject(new Error(j.message || 'Twelve Data error'));
+                    }
 
-                    const data = j.values.slice().reverse().map(x => ({
-                      open: parseFloat(x.open),
-                      high: parseFloat(x.high),
-                      low: parseFloat(x.low),
-                      close: parseFloat(x.close)
-                    })).filter(x =>
-                      Number.isFinite(x.open) &&
-                      Number.isFinite(x.high) &&
-                      Number.isFinite(x.low) &&
-                      Number.isFinite(x.close)
-                    );
+                    if (!j.values || !Array.isArray(j.values)) {
+                      return reject(new Error('No Twelve Data values'));
+                    }
+
+                    const data = j.values
+                      .slice()
+                      .reverse()
+                      .map(x => ({
+                        open: parseFloat(x.open),
+                        high: parseFloat(x.high),
+                        low: parseFloat(x.low),
+                        close: parseFloat(x.close)
+                      }))
+                      .filter(x =>
+                        Number.isFinite(x.open) &&
+                        Number.isFinite(x.high) &&
+                        Number.isFinite(x.low) &&
+                        Number.isFinite(x.close)
+                      );
 
                     resolve(data);
                   } catch (e) {
@@ -153,12 +173,17 @@ jobs:
             if (!values || values.length < period) return null;
             const k = 2 / (period + 1);
             let v = values[0];
-            for (let i = 1; i < values.length; i++) v = values[i] * k + v * (1 - k);
+
+            for (let i = 1; i < values.length; i++) {
+              v = values[i] * k + v * (1 - k);
+            }
+
             return v;
           }
 
           function atr(data, period = 14) {
             if (data.length < period + 2) return null;
+
             const trs = [];
 
             for (let i = 1; i < data.length; i++) {
@@ -193,10 +218,25 @@ jobs:
 
             const trigger = localHigh;
             const sl = zoneLow - atrVal * 0.50;
-            const tp1 = trigger + (trigger - sl) * 1.5;
-            const tp2 = trigger + (trigger - sl) * 3;
 
-            return { price, ema20, ema50, atrVal, localHigh, localLow, zoneLow, zoneHigh, trigger, sl, tp1, tp2 };
+            const risk = trigger - sl;
+            const tp1 = trigger + risk * 1.5;
+            const tp2 = trigger + risk * 3;
+
+            return {
+              price,
+              ema20,
+              ema50,
+              atrVal,
+              localHigh,
+              localLow,
+              zoneLow,
+              zoneHigh,
+              trigger,
+              sl,
+              tp1,
+              tp2
+            };
           }
 
           function getSignal(lv) {
@@ -210,9 +250,9 @@ jobs:
 
             if (!trend) return 'NO_TRADE';
             if (tooLate) return 'TOO_LATE';
-            if (nearZone) return 'WATCH';
-            if (inZone && !entry) return 'READY';
             if (entry) return 'ENTRY';
+            if (inZone) return 'READY';
+            if (nearZone) return 'WATCH';
 
             return 'NO_TRADE';
           }
@@ -238,23 +278,42 @@ jobs:
                 '',
                 'Trade zamknięty.'
               ]));
+
               delete cache.activeTrades[instr.key];
               return;
             }
 
-            if (rNow >= 1 && !t.beAlert) {
+            if (price >= t.tp2 && !t.tp2Alert) {
               await sendTG(message([
-                '🛡️ PRZESUŃ SL: ' + instr.name,
+                '🏆 TP2 HIT: ' + instr.name,
                 '',
-                'Trade jest na +1R.',
+                'Duży ruch złapany.',
                 '',
                 'Zrób:',
-                'SL → BE / okolice wejścia',
+                'zamknij większość pozycji',
+                'albo mocno zabezpiecz zysk.',
                 '',
-                'Entry: ' + money(t.entry, instr.dec),
-                'Nowa ochrona: ' + money(t.entry, instr.dec)
+                'Cena: ' + money(price, instr.dec)
               ]));
-              t.beAlert = true;
+
+              t.tp2Alert = true;
+              return;
+            }
+
+            if (price >= t.tp1 && !t.tp1Alert) {
+              await sendTG(message([
+                '🎯 TP1 HIT: ' + instr.name,
+                '',
+                'Pierwszy cel osiągnięty.',
+                '',
+                'Zrób:',
+                'zabezpiecz część zysku,',
+                'SL minimum na BE.',
+                '',
+                'Cena: ' + money(price, instr.dec)
+              ]));
+
+              t.tp1Alert = true;
               return;
             }
 
@@ -270,39 +329,25 @@ jobs:
                 '',
                 'Aktualna cena: ' + money(price, instr.dec)
               ]));
+
               t.secureAlert = true;
               return;
             }
 
-            if (price >= t.tp1 && !t.tp1Alert) {
+            if (rNow >= 1 && !t.beAlert) {
               await sendTG(message([
-                '🎯 TP1 HIT: ' + instr.name,
+                '🛡️ PRZESUŃ SL: ' + instr.name,
                 '',
-                'Pierwszy cel osiągnięty.',
+                'Trade jest na +1R.',
                 '',
                 'Zrób:',
-                'część zysku możesz zabezpieczyć,',
-                'SL minimum na BE.',
+                'SL → BE / okolice wejścia',
                 '',
-                'Cena: ' + money(price, instr.dec)
+                'Entry: ' + money(t.entry, instr.dec),
+                'Nowa ochrona: ' + money(t.entry, instr.dec)
               ]));
-              t.tp1Alert = true;
-              return;
-            }
 
-            if (price >= t.tp2 && !t.tp2Alert) {
-              await sendTG(message([
-                '🏆 TP2 HIT: ' + instr.name,
-                '',
-                'Duży ruch złapany.',
-                '',
-                'Zrób:',
-                'mocno zabezpiecz zysk',
-                'albo zamknij większość pozycji.',
-                '',
-                'Cena: ' + money(price, instr.dec)
-              ]));
-              t.tp2Alert = true;
+              t.beAlert = true;
               return;
             }
 
@@ -319,6 +364,7 @@ jobs:
                 'Cena: ' + money(price, instr.dec),
                 'EMA20: ' + money(lv.ema20, instr.dec)
               ]));
+
               t.exitWarning = true;
               return;
             }
@@ -349,6 +395,7 @@ jobs:
                 '',
                 'Czekamy na nowe cofnięcie.'
               ]));
+
               markSent(instr.key, 'too_late');
               return;
             }
@@ -368,6 +415,7 @@ jobs:
                 'Setup anulowany poniżej:',
                 money(lv.sl, instr.dec)
               ]));
+
               markSent(instr.key, 'watch');
               return;
             }
@@ -388,6 +436,7 @@ jobs:
                 'TP1: ' + money(lv.tp1, instr.dec),
                 'TP2: ' + money(lv.tp2, instr.dec)
               ]));
+
               markSent(instr.key, 'ready');
               return;
             }
@@ -442,3 +491,4 @@ jobs:
 
           main();
           SCRIPT
+          
