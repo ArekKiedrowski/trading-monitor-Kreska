@@ -1,440 +1,481 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>System O v4.2 — Console</title>
-  <style>
-    :root{
-      --bg:#07090d;
-      --panel:#111722;
-      --panel2:#151d2b;
-      --border:rgba(255,255,255,.09);
-      --border2:rgba(255,255,255,.16);
-      --text:#edf2fb;
-      --muted:#8b97aa;
-      --green:#10b981;
-      --red:#ef4444;
-      --yellow:#f59e0b;
-      --blue:#60a5fa;
-      --purple:#a78bfa;
-      --radius:18px;
-    }
-    *{box-sizing:border-box}
-    body{margin:0;background:radial-gradient(circle at top,#111827 0,#07090d 45%);color:var(--text);font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}
-    .app{max-width:1380px;margin:0 auto;padding:20px 14px 46px}
-    .topbar{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:16px}
-    h1{font-size:clamp(22px,4vw,34px);line-height:1;margin:0;letter-spacing:-.04em}
-    .sub{color:var(--muted);font-size:13px;margin-top:6px}
-    .pills{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-    .pill{border:1px solid var(--border);background:rgba(255,255,255,.04);border-radius:999px;padding:7px 11px;font-size:12px;color:var(--muted)}
-    .pill strong{color:var(--text)}
-    .grid{display:grid;grid-template-columns:1.15fr .85fr;gap:16px}
-    .card{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02));border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.25)}
-    .cardHead{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px;background:rgba(0,0,0,.15)}
-    .cardHead strong{font-size:14px}
-    .cardBody{padding:16px}
-    .metricGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
-    .metric{background:rgba(0,0,0,.26);border:1px solid var(--border);border-radius:14px;padding:12px;min-height:72px}
-    .metric .label{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:800}
-    .metric .value{font-size:21px;font-weight:950;margin-top:5px;letter-spacing:-.04em}
-    .metric .hint{font-size:11px;color:var(--muted);margin-top:2px}
-    button{border:1px solid var(--border2);background:rgba(255,255,255,.06);color:var(--text);font-weight:850;border-radius:12px;padding:10px 12px;cursor:pointer;transition:.18s;white-space:nowrap}
-    button:hover{background:rgba(255,255,255,.11)}
-    button.primary{background:var(--green);color:#04130d;border:none}
-    button.blue{background:rgba(96,165,250,.16);border-color:rgba(96,165,250,.32);color:#bfdbfe}
-    button.red{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.35);color:#fecaca}
-    button.yellow{background:rgba(245,158,11,.13);border-color:rgba(245,158,11,.35);color:#fde68a}
-    button.small{font-size:11px;padding:7px 9px;border-radius:9px}
-    textarea,input,select{width:100%;background:rgba(0,0,0,.32);border:1px solid var(--border);color:var(--text);border-radius:12px;padding:10px 11px;outline:none;font-family:inherit}
-    textarea{min-height:180px;font-family:"SFMono-Regular",Consolas,monospace;font-size:12px;line-height:1.45;resize:vertical}
-    input:focus,textarea:focus,select:focus{border-color:rgba(96,165,250,.55)}
-    label{display:block;font-size:11px;color:var(--muted);font-weight:850;text-transform:uppercase;margin-bottom:6px;letter-spacing:.06em}
-    .formGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
-    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-    .list{display:grid;gap:10px}
-    .item{border:1px solid var(--border);background:rgba(0,0,0,.22);border-radius:14px;padding:12px}
-    .itemTop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
-    .ticker{font-size:18px;font-weight:950;letter-spacing:-.03em}
-    .badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 8px;font-size:10px;font-weight:900;letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--border)}
-    .badge.watch{color:#fde68a;background:rgba(245,158,11,.13);border-color:rgba(245,158,11,.35)}
-    .badge.entry{color:#bfdbfe;background:rgba(96,165,250,.12);border-color:rgba(96,165,250,.35)}
-    .badge.trigger{color:#bbf7d0;background:rgba(16,185,129,.13);border-color:rgba(16,185,129,.35)}
-    .badge.active{color:#ddd6fe;background:rgba(167,139,250,.14);border-color:rgba(167,139,250,.35)}
-    .badge.exit{color:#fecaca;background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.35)}
-    .meta{font-size:12px;color:var(--muted);line-height:1.55;margin-top:8px}
-    .numbers{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}
-    .num{background:rgba(255,255,255,.035);border:1px solid var(--border);border-radius:10px;padding:8px}
-    .num span{display:block;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:800}
-    .num b{display:block;font-size:13px;margin-top:3px}
-    .log{height:430px;overflow:auto;background:#05070a;border:1px solid var(--border);border-radius:14px;padding:12px;font-family:"SFMono-Regular",Consolas,monospace;font-size:12px;line-height:1.55;white-space:pre-wrap}
-    .logLine{color:#cbd5e1;margin-bottom:4px}
-    .ok{color:#86efac}.warn{color:#fde68a}.bad{color:#fca5a5}.info{color:#93c5fd}
-    .empty{color:var(--muted);font-size:13px;padding:12px;border:1px dashed var(--border);border-radius:14px;text-align:center}
-    .tabs{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
-    .tab{padding:8px 10px;border-radius:999px;border:1px solid var(--border);color:var(--muted);font-size:12px;cursor:pointer;background:rgba(255,255,255,.03)}
-    .tab.active{color:var(--text);background:rgba(96,165,250,.16);border-color:rgba(96,165,250,.35)}
-    .hidden{display:none!important}
-    @media(max-width:980px){.grid{grid-template-columns:1fr}.metricGrid{grid-template-columns:repeat(2,1fr)}.topbar{flex-direction:column}.pills{justify-content:flex-start}.numbers{grid-template-columns:repeat(2,1fr)}}
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>System O v5 PRO Console</title>
+<style>
+:root{
+  --bg:#0d0f14;--card:#161920;--card2:#1f2430;--line:rgba(255,255,255,.09);
+  --txt:#e7ebf3;--muted:#8b93a5;--green:#10b981;--red:#ef4444;--gold:#f59e0b;
+  --blue:#3b82f6;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font-family:Inter,Arial,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:22px}
+h1{margin:0;font-size:28px}
+.sub{color:var(--muted);margin-top:6px}
+.top{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.badge{background:var(--card2);border:1px solid var(--line);padding:8px 12px;border-radius:999px;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:22px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px}
+.metric{font-size:30px;font-weight:800}
+.label{color:var(--muted);font-size:13px;margin-top:4px}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}
+button{border:0;border-radius:12px;padding:10px 14px;background:var(--card2);color:var(--txt);cursor:pointer;font-weight:700}
+button:hover{filter:brightness(1.12)}
+.primary{background:var(--blue)}
+.danger{background:var(--red)}
+.good{background:var(--green)}
+.warn{background:var(--gold);color:#111}
+.tabs{display:flex;gap:8px;margin:18px 0}
+.tab{padding:9px 14px;border-radius:999px;background:var(--card2);color:var(--muted)}
+.tab.active{background:var(--txt);color:#111}
+.setup{border-left:4px solid var(--green);margin-bottom:14px}
+.setup.watch{border-left-color:var(--gold)}
+.setup.invalid{border-left-color:var(--red)}
+.row{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:14px}
+.box{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:10px}
+.box b{display:block;font-size:18px;margin-top:3px}
+.reason{color:var(--muted);font-size:14px;line-height:1.5;margin-top:12px}
+.log{height:300px;overflow:auto;background:#080a0f;border:1px solid var(--line);border-radius:16px;padding:12px;font-family:monospace;font-size:13px;white-space:pre-wrap}
+input,select,textarea{width:100%;background:var(--card2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:10px}
+.form{display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:10px;margin-top:12px}
+@media(max-width:850px){
+  .grid{grid-template-columns:repeat(2,1fr)}
+  .row{grid-template-columns:repeat(2,1fr)}
+  .form{grid-template-columns:1fr}
+}
+</style>
 </head>
 <body>
-  <div class="app">
-    <header class="topbar">
-      <div>
-        <h1>System O v4.2 Console</h1>
-        <div class="sub">Quant-Momentum / Bone Zone / VCP / Position Sizing / Journal</div>
-      </div>
-      <div class="pills">
-        <div class="pill">Mode: <strong id="modePill">LOCAL</strong></div>
-        <div class="pill">Balance: <strong id="balancePill">$10,000</strong></div>
-        <div class="pill">Tickers: <strong>BTC · TSLA · NVDA · GOOG</strong></div>
-      </div>
-    </header>
-
-    <section class="metricGrid">
-      <div class="metric"><div class="label">Pending</div><div id="pendingCount" class="value">0</div><div class="hint">WATCH / ENTRY / TRIGGER</div></div>
-      <div class="metric"><div class="label">Active</div><div id="activeCount" class="value">0</div><div class="hint">confirmed trades</div></div>
-      <div class="metric"><div class="label">Avg Score</div><div id="avgScore" class="value">0</div><div class="hint">pending setups</div></div>
-      <div class="metric"><div class="label">Risk Planned</div><div id="riskPlanned" class="value">$0</div><div class="hint">sum pending risk</div></div>
-    </section>
-
-    <main class="grid">
-      <section>
-        <div class="card">
-          <div class="cardHead">
-            <strong>Radar</strong>
-            <div class="toolbar" style="margin:0">
-              <button class="small blue" onclick="addSamplePending()">+ Sample setup</button>
-              <button class="small yellow" onclick="simulateScan()">Simulate scan</button>
-              <button class="small red" onclick="resetAll()">Reset</button>
-            </div>
-          </div>
-          <div class="cardBody">
-            <div class="tabs">
-              <div id="tabPending" class="tab active" onclick="setTab('pending')">Pending</div>
-              <div id="tabActive" class="tab" onclick="setTab('active')">Active</div>
-              <div id="tabImport" class="tab" onclick="setTab('import')">Import / Export</div>
-            </div>
-
-            <div id="panelPending">
-              <div id="pendingList" class="list"></div>
-            </div>
-
-            <div id="panelActive" class="hidden">
-              <div id="activeList" class="list"></div>
-            </div>
-
-            <div id="panelImport" class="hidden">
-              <div class="formGrid">
-                <div>
-                  <label>Account balance</label>
-                  <input id="balanceInput" type="number" value="10000" oninput="setBalanceFromInput()" />
-                </div>
-                <div>
-                  <label>Console mode</label>
-                  <select id="consoleMode" onchange="updateMode()">
-                    <option value="LOCAL">LOCAL</option>
-                    <option value="GITHUB LOG REVIEW">GITHUB LOG REVIEW</option>
-                    <option value="LIVE OBSERVER">LIVE OBSERVER</option>
-                  </select>
-                </div>
-              </div>
-
-              <label>Cache JSON / signal-cache.json</label>
-              <textarea id="jsonBox" placeholder="Wklej tutaj zawartość signal-cache.json..."></textarea>
-              <div class="toolbar">
-                <button class="primary" onclick="importJson()">Import JSON</button>
-                <button class="blue" onclick="exportJson()">Export JSON</button>
-                <button onclick="copyJson()">Copy JSON</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <aside>
-        <div class="card">
-          <div class="cardHead">
-            <strong>Console log</strong>
-            <button class="small" onclick="clearLog()">Clear</button>
-          </div>
-          <div class="cardBody">
-            <div id="log" class="log"></div>
-          </div>
-        </div>
-
-        <div class="card" style="margin-top:16px">
-          <div class="cardHead"><strong>Manual trade</strong></div>
-          <div class="cardBody">
-            <div class="formGrid">
-              <div><label>Ticker key</label><input id="manualKey" placeholder="btc / tsla / nvda / goog" /></div>
-              <div><label>Grade</label><select id="manualGrade"><option>A+</option><option>A</option><option>WATCH</option></select></div>
-            </div>
-            <div class="formGrid">
-              <div><label>Entry</label><input id="manualEntry" type="number" step="0.01" /></div>
-              <div><label>SL</label><input id="manualSL" type="number" step="0.01" /></div>
-            </div>
-            <button class="primary" style="width:100%" onclick="addManualPending()">Add pending</button>
-          </div>
-        </div>
-      </aside>
-    </main>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>System O v5 PRO Console</h1>
+      <div class="sub">Quant-Momentum / Bone Zone / Pullback Filter / Risk Control / Journal</div>
+    </div>
+    <div class="badge">Mode: LOCAL · Risk A+ 2% · A 1%</div>
   </div>
 
-  <script>
-    const STORAGE_KEY = 'system_o_console_v42';
-    const INSTRUMENTS = {
-      btc:{key:'btc',name:'BTC',dec:0,minRR:4,market:'CRYPTO'},
-      tsla:{key:'tsla',name:'TSLA',dec:2,minRR:4,market:'TECH'},
-      nvda:{key:'nvda',name:'NVDA',dec:2,minRR:4,market:'TECH'},
-      goog:{key:'goog',name:'GOOG',dec:2,minRR:4,market:'TECH'}
-    };
+  <div class="grid">
+    <div class="card"><div class="metric" id="pendingCount">0</div><div class="label">Pending</div></div>
+    <div class="card"><div class="metric" id="activeCount">0</div><div class="label">Active</div></div>
+    <div class="card"><div class="metric" id="avgScore">0</div><div class="label">Avg Score</div></div>
+    <div class="card"><div class="metric" id="riskPlanned">$0</div><div class="label">Risk Planned</div></div>
+  </div>
 
-    let state = loadState();
-    let activeTab = 'pending';
+  <div class="actions">
+    <button class="primary" onclick="simulateScan()">Simulate scan</button>
+    <button onclick="render()">Refresh</button>
+    <button class="danger" onclick="resetAll()">Reset</button>
+    <button onclick="exportData()">Export</button>
+    <button onclick="importData()">Import</button>
+  </div>
 
-    function defaultState(){
-      return { balance:10000, pendingSetups:{}, activePositions:{}, lastAlerts:{}, journal:[], logs:[] };
+  <div class="tabs">
+    <div class="tab active">Pending</div>
+    <div class="tab">Active</div>
+    <div class="tab">Journal</div>
+  </div>
+
+  <div class="card">
+    <h3>Pending setups</h3>
+    <div id="pendingList"></div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <h3>Active trades</h3>
+    <div id="activeList"></div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <h3>Manual trade</h3>
+    <div class="form">
+      <input id="mTicker" placeholder="ticker: btc / tsla / nvda / goog" />
+      <input id="mEntry" placeholder="entry" type="number" step="0.01" />
+      <input id="mSL" placeholder="SL" type="number" step="0.01" />
+      <select id="mGrade">
+        <option>A+</option>
+        <option>A</option>
+        <option>WATCH</option>
+      </select>
+      <button class="good" onclick="addManual()">Add pending</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <h3>Console log</h3>
+    <button onclick="clearLog()">Clear</button>
+    <div class="log" id="logBox"></div>
+  </div>
+</div>
+
+<script>
+const VERSION = 'SYSTEM_O_V5_PRO';
+const STORAGE_KEY = 'system_o_v5_pro_state';
+
+const ACCOUNT_BALANCE = 10000;
+
+const INSTRUMENTS = {
+  btc:  { name:'BTC',  minRR:4, dec:2 },
+  tsla: { name:'TSLA', minRR:4, dec:2 },
+  nvda: { name:'NVDA', minRR:4, dec:2 },
+  goog: { name:'GOOG', minRR:3, dec:2 }
+};
+
+let state = {
+  version: VERSION,
+  pending: [],
+  active: [],
+  journal: [],
+  logs: []
+};
+
+function load(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){
+      const parsed = JSON.parse(raw);
+      if(parsed.version === VERSION) state = parsed;
     }
+  }catch(e){}
+}
 
-    function loadState(){
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || defaultState(); }
-      catch(e){ return defaultState(); }
-    }
+function save(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
 
-    function saveState(){
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    }
+function now(){
+  return new Date().toISOString().replace('T',' ').slice(0,19);
+}
 
-    function money(n, dec=2){
-      const v = Number(n);
-      if(!Number.isFinite(v)) return '—';
-      return v.toLocaleString('en-US', {minimumFractionDigits:dec, maximumFractionDigits:dec});
-    }
+function log(msg){
+  state.logs.unshift(`[${now()}] ${msg}`);
+  state.logs = state.logs.slice(0,120);
+  save();
+  renderLog();
+}
 
-    function calcPositionSize(balance, riskPct, entry, sl){
-      const riskUsd = balance * Number(riskPct || 0);
-      const riskPerUnit = Math.abs(Number(entry) - Number(sl));
-      if(!riskUsd || !riskPerUnit) return {size:0,dollarValue:0,riskUsd,riskPerUnit};
-      const size = riskUsd / riskPerUnit;
-      return {size, dollarValue:size * entry, riskUsd, riskPerUnit};
-    }
+function money(v,d=0){
+  return '$' + Number(v || 0).toFixed(d);
+}
 
-    function gradeRisk(grade){
-      if(grade === 'A+') return 0.10;
-      if(grade === 'A') return 0.06;
-      return 0;
-    }
+function riskByGrade(grade){
+  if(grade === 'A+') return 0.02;
+  if(grade === 'A') return 0.01;
+  return 0;
+}
 
-    function log(msg, type='info'){
-      const time = new Date().toISOString().replace('T',' ').slice(0,19);
-      state.logs.unshift({time,msg,type});
-      state.logs = state.logs.slice(0,250);
-      saveState();
-      renderLog();
-    }
+function scoreToGrade(score){
+  if(score >= 85) return 'A+';
+  if(score >= 70) return 'A';
+  if(score >= 55) return 'WATCH';
+  return 'INVALID';
+}
 
-    function renderLog(){
-      const el = document.getElementById('log');
-      if(!state.logs.length){ el.innerHTML = '<span class="info">Console ready.</span>'; return; }
-      el.innerHTML = state.logs.map(l => `<div class="logLine ${l.type}">[${l.time}] ${escapeHtml(l.msg)}</div>`).join('');
-    }
+function calcPosition(entry, sl, riskPct){
+  const riskUSD = ACCOUNT_BALANCE * riskPct;
+  const riskUnit = Math.abs(entry - sl);
+  if(riskUnit <= 0 || riskPct <= 0) {
+    return { size:0, value:0, riskUSD:0, riskUnit };
+  }
 
-    function escapeHtml(str){
-      return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
-    }
+  let size = riskUSD / riskUnit;
+  let value = size * entry;
 
-    function setTab(tab){
-      activeTab = tab;
-      ['pending','active','import'].forEach(t => {
-        document.getElementById('tab'+cap(t)).classList.toggle('active', t===tab);
-        document.getElementById('panel'+cap(t)).classList.toggle('hidden', t!==tab);
-      });
-    }
+  const maxValue = ACCOUNT_BALANCE * 1.0;
 
-    function cap(s){return s.charAt(0).toUpperCase()+s.slice(1)}
+  if(value > maxValue){
+    const factor = maxValue / value;
+    size *= factor;
+    value = maxValue;
+  }
 
-    function updateMode(){
-      document.getElementById('modePill').textContent = document.getElementById('consoleMode').value;
-    }
+  return { size, value, riskUSD: Math.min(riskUSD, riskUnit * size), riskUnit };
+}
 
-    function setBalanceFromInput(){
-      state.balance = Number(document.getElementById('balanceInput').value || 10000);
-      saveState();
-      render();
-    }
+function validateProSetup(s){
+  if(s.extended) return { ok:false, reason:'AFTER IMPULSE / TOO LATE' };
+  if(!s.trend) return { ok:false, reason:'NO TREND' };
+  if(!s.bone) return { ok:false, reason:'NO EMA / BONE ZONE' };
+  if(!s.pullback) return { ok:false, reason:'NO REAL PULLBACK' };
+  if(!s.trigger) return { ok:false, reason:'WATCH ONLY — WAITING FOR TRIGGER' };
+  return { ok:true, reason:'PRO PULLBACK CONFIRMED' };
+}
 
-    function statusBadge(status){
-      const s = String(status || 'WATCH');
-      const cls = s === 'TRIGGER' ? 'trigger' : s === 'ENTRY ZONE' ? 'entry' : 'watch';
-      return `<span class="badge ${cls}">${escapeHtml(s)}</span>`;
-    }
+function makeSetup(key, data){
+  const instr = INSTRUMENTS[key];
+  const pro = validateProSetup(data);
+  const score = data.score;
+  const grade = pro.ok ? scoreToGrade(score) : (score >= 55 ? 'WATCH' : 'INVALID');
+  const riskPct = riskByGrade(grade);
 
-    function activeBadge(){ return `<span class="badge active">ACTIVE</span>`; }
+  const entry = Number(data.entry);
+  const sl = Number(data.sl);
+  const tp2 = entry + Math.abs(entry - sl) * instr.minRR;
 
-    function renderPending(){
-      const el = document.getElementById('pendingList');
-      const entries = Object.entries(state.pendingSetups || {});
-      if(!entries.length){ el.innerHTML = '<div class="empty">Brak pending setupów.</div>'; return; }
+  const pos = calcPosition(entry, sl, riskPct);
 
-      el.innerHTML = entries.map(([key,p]) => {
-        const instr = INSTRUMENTS[key] || {name:p.instr || key,dec:p.dec||2,market:'TECH'};
-        const pos = p.positionSize || calcPositionSize(state.balance, p.baseRisk || gradeRisk(p.grade), p.entry, p.sl);
-        const sizeDec = instr.market === 'CRYPTO' ? 4 : 2;
-        return `<div class="item">
-          <div class="itemTop">
-            <div><div class="ticker">${escapeHtml(p.instr || instr.name)} ${escapeHtml(p.dir || 'LONG')}</div><div class="meta">Grade: <b>${escapeHtml(p.grade || 'WATCH')}</b> · Score: <b>${p.score ?? '—'}/100</b></div></div>
-            ${statusBadge(p.status)}
-          </div>
-          <div class="numbers">
-            <div class="num"><span>Entry</span><b>${money(p.entry, instr.dec)}</b></div>
-            <div class="num"><span>SL</span><b>${money(p.sl, instr.dec)}</b></div>
-            <div class="num"><span>TP2</span><b>${money(p.tp2, instr.dec)}</b></div>
-            <div class="num"><span>Risk</span><b>${money((p.baseRisk||0)*100,1)}%</b></div>
-            <div class="num"><span>Size</span><b>${money(pos.size, sizeDec)}</b></div>
-            <div class="num"><span>Value</span><b>$${money(pos.dollarValue,0)}</b></div>
-            <div class="num"><span>Risk USD</span><b>$${money(pos.riskUsd,0)}</b></div>
-            <div class="num"><span>Risk/unit</span><b>$${money(pos.riskPerUnit,instr.dec)}</b></div>
-          </div>
-          <div class="meta">${(p.why||[]).slice(0,3).map(x=>'• '+escapeHtml(x)).join('<br>')}</div>
-          <div class="toolbar">
-            <button class="primary small" onclick="confirmPending('${key}')">Confirm → Active</button>
-            <button class="yellow small" onclick="markWatch('${key}')">Keep Watch</button>
-            <button class="red small" onclick="deletePending('${key}')">Delete</button>
-          </div>
-        </div>`;
-      }).join('');
-    }
+  return {
+    id: `${key}_${Date.now()}`,
+    key,
+    name: instr.name,
+    direction:'LONG',
+    grade,
+    score,
+    status: pro.ok ? 'TRIGGER' : 'WATCH',
+    entry,
+    sl,
+    tp2,
+    riskPct,
+    size: pos.size,
+    value: pos.value,
+    riskUSD: pos.riskUSD,
+    riskUnit: pos.riskUnit,
+    proReason: pro.reason,
+    checks: data,
+    createdAt: now()
+  };
+}
 
-    function renderActive(){
-      const el = document.getElementById('activeList');
-      const entries = Object.entries(state.activePositions || {});
-      if(!entries.length){ el.innerHTML = '<div class="empty">Brak aktywnych pozycji.</div>'; return; }
+function simulateScan(){
+  const presets = {
+    btc:  { score:72, trend:true,  bone:true,  pullback:true,  trigger:false, extended:false, entry:95000, sl:93200 },
+    tsla: { score:64, trend:true,  bone:false, pullback:true,  trigger:false, extended:false, entry:245, sl:236 },
+    nvda: { score:72, trend:true,  bone:true,  pullback:false, trigger:false, extended:true,  entry:208.10, sl:205.60 },
+    goog: { score:78, trend:true,  bone:true,  pullback:true,  trigger:false, extended:false, entry:171.40, sl:168.20 }
+  };
 
-      el.innerHTML = entries.map(([key,p]) => {
-        const instr = INSTRUMENTS[key] || {name:key,dec:p.dec||2,market:'TECH'};
-        const currentR = p.currentR ?? 0;
-        return `<div class="item">
-          <div class="itemTop">
-            <div><div class="ticker">${escapeHtml(instr.name)} ${escapeHtml(p.dir || 'LONG')}</div><div class="meta">Grade: <b>${escapeHtml(p.grade || '—')}</b> · Max R: <b>${money(p.maxR||0,2)}</b> · Age: <b>${p.candleAge||0}</b></div></div>
-            ${activeBadge()}
-          </div>
-          <div class="numbers">
-            <div class="num"><span>Entry</span><b>${money(p.entry, instr.dec)}</b></div>
-            <div class="num"><span>SL</span><b>${money(p.sl, instr.dec)}</b></div>
-            <div class="num"><span>TP1</span><b>${money(p.tp1, instr.dec)}</b></div>
-            <div class="num"><span>TP2</span><b>${money(p.tp2, instr.dec)}</b></div>
-          </div>
-          <div class="toolbar">
-            <button class="blue small" onclick="simulateR('${key}',1)">+1R / BE</button>
-            <button class="yellow small" onclick="simulateR('${key}',1.5)">+1.5R / TP1</button>
-            <button class="red small" onclick="closeActive('${key}','Manual close')">Close</button>
-          </div>
-        </div>`;
-      }).join('');
-    }
+  Object.keys(presets).forEach(key => {
+    const s = presets[key];
+    const pro = validateProSetup(s);
+    const status = pro.ok ? 'TRIGGER' : (s.score >= 55 ? 'WATCH' : 'SCANNING');
+    log(`[SCAN] ${INSTRUMENTS[key].name} | Status: ${status} | Score: ${s.score} | ${pro.reason}`);
+  });
 
-    function renderMetrics(){
-      const pending = Object.values(state.pendingSetups||{});
-      const active = Object.values(state.activePositions||{});
-      const avg = pending.length ? pending.reduce((s,p)=>s+Number(p.score||0),0)/pending.length : 0;
-      const risk = pending.reduce((s,p)=>s+(p.positionSize?.riskUsd || state.balance*(p.baseRisk||0)),0);
-      document.getElementById('pendingCount').textContent = pending.length;
-      document.getElementById('activeCount').textContent = active.length;
-      document.getElementById('avgScore').textContent = money(avg,0);
-      document.getElementById('riskPlanned').textContent = '$' + money(risk,0);
-      document.getElementById('balancePill').textContent = '$' + money(state.balance,0);
-      document.getElementById('balanceInput').value = state.balance;
-    }
+  const candidate = presets.nvda;
+  const setup = makeSetup('nvda', candidate);
 
-    function render(){ renderMetrics(); renderPending(); renderActive(); renderLog(); exportJson(true); }
+  if(setup.status === 'TRIGGER'){
+    addPending(setup);
+  } else {
+    log(`[NO ADD] NVDA blocked by v5 PRO: ${setup.proReason}`);
+  }
 
-    function confirmPending(key){
-      const p = state.pendingSetups[key];
-      if(!p) return;
-      state.activePositions[key] = {
-        dir:p.dir||'LONG', entry:p.entry, sl:p.sl, tp1:p.tp1, tp2:p.tp2,
-        targetR:p.targetR||4, dec:p.dec||2, entryAtr:p.atr||0,
-        candleAge:0, maxR:0, lastUpdatedT:null,
-        beAlerted:false,tp1Alerted:false,tp2Alerted:false,decayAlerted:false,zombieAlerted:false,
-        grade:p.grade, score:p.score, baseRisk:p.baseRisk, positionSize:p.positionSize
-      };
-      delete state.pendingSetups[key];
-      log(`TRADE ACTIVE: ${key} moved from pending to active`, 'ok');
-      saveState(); render();
-    }
+  render();
+}
 
-    function deletePending(key){ delete state.pendingSetups[key]; log(`Deleted pending: ${key}`, 'warn'); saveState(); render(); }
-    function markWatch(key){ if(state.pendingSetups[key]) state.pendingSetups[key].status='WATCH'; log(`Marked WATCH: ${key}`, 'info'); saveState(); render(); }
-    function closeActive(key, reason){ delete state.activePositions[key]; log(`Closed active ${key}: ${reason}`, 'warn'); saveState(); render(); }
-    function simulateR(key,r){ const p=state.activePositions[key]; if(!p)return; p.maxR=Math.max(p.maxR||0,r); p.currentR=r; log(`${key} simulated ${r}R`, r>=1?'ok':'info'); saveState(); render(); }
+function addPending(setup){
+  const exists = state.pending.some(x => x.key === setup.key && Math.abs(x.entry - setup.entry) / setup.entry < 0.002);
+  if(exists){
+    log(`[SKIP] Duplicate pending: ${setup.name}`);
+    return;
+  }
 
-    function addPending(key, data){
-      const instr = INSTRUMENTS[key] || INSTRUMENTS.nvda;
-      const baseRisk = data.baseRisk ?? gradeRisk(data.grade);
-      const positionSize = calcPositionSize(state.balance, baseRisk, data.entry, data.sl);
-      state.pendingSetups[key] = {
-        instr: instr.name, key, status:data.status||'ENTRY ZONE', grade:data.grade||'A', baseRisk,
-        score:data.score||82, dir:'LONG', entry:data.entry, sl:data.sl,
-        tp1:data.entry + Math.abs(data.entry-data.sl)*1.5,
-        tp2:data.entry + Math.abs(data.entry-data.sl)*(instr.minRR||4),
-        targetR:instr.minRR||4, atr:Math.abs(data.entry-data.sl), dec:instr.dec,
-        timestamp:Date.now(), why:data.why||['Manual setup'], alerts:data.alerts||[], positionSize
-      };
-      log(`Pending added: ${key} ${data.grade||'A'} score ${data.score||82}`, 'ok');
-      saveState(); render();
-    }
+  if(setup.riskPct > 0.02){
+    log(`[BLOCK] Risk too high: ${setup.name}`);
+    return;
+  }
 
-    function addSamplePending(){
-      addPending('nvda',{entry:208.10, sl:201.80, grade:'A+', score:92, status:'TRIGGER', why:['Trend: price > EMA50 > EMA200','Bone Zone confirmed','VCP + volume dry-up','Space to run OK']});
-    }
+  if(setup.value > ACCOUNT_BALANCE){
+    log(`[LIMIT] Exposure capped to account balance: ${setup.name}`);
+  }
 
-    function addManualPending(){
-      const key = document.getElementById('manualKey').value.trim().toLowerCase();
-      const entry = Number(document.getElementById('manualEntry').value);
-      const sl = Number(document.getElementById('manualSL').value);
-      const grade = document.getElementById('manualGrade').value;
-      if(!key || !entry || !sl){ log('Manual pending failed: missing key/entry/sl', 'bad'); return; }
-      addPending(key,{entry,sl,grade,score:grade==='A+'?90:grade==='A'?80:70,status:grade==='WATCH'?'WATCH':'ENTRY ZONE'});
-    }
+  state.pending.unshift(setup);
+  log(`Pending added: ${setup.key} ${setup.grade} score ${setup.score}`);
+  save();
+  render();
+}
 
-    function simulateScan(){
-      const keys = Object.keys(INSTRUMENTS);
-      keys.forEach(k => {
-        const score = Math.floor(45 + Math.random()*50);
-        const status = score>=90?'TRIGGER':score>=80?'ENTRY ZONE':score>=70?'WATCH':'SCANNING';
-        log(`[SCAN] ${INSTRUMENTS[k].name} | Status: ${status} | Score: ${score}`, score>=80?'ok':score>=70?'warn':'info');
-      });
-    }
+function addManual(){
+  const key = document.getElementById('mTicker').value.trim().toLowerCase();
+  const entry = Number(document.getElementById('mEntry').value);
+  const sl = Number(document.getElementById('mSL').value);
+  const grade = document.getElementById('mGrade').value;
 
-    function exportJson(silent=false){
-      const json = JSON.stringify({pendingSetups:state.pendingSetups,activePositions:state.activePositions,lastAlerts:state.lastAlerts}, null, 2);
-      document.getElementById('jsonBox').value = json;
-      if(!silent) log('Exported JSON to textarea', 'info');
-    }
+  if(!INSTRUMENTS[key] || !entry || !sl){
+    log('[MANUAL] Invalid manual trade');
+    return;
+  }
 
-    function importJson(){
-      try{
-        const obj = JSON.parse(document.getElementById('jsonBox').value);
-        state.pendingSetups = obj.pendingSetups || {};
-        state.activePositions = obj.activePositions || {};
-        state.lastAlerts = obj.lastAlerts || {};
-        log('Imported JSON cache', 'ok'); saveState(); render();
-      }catch(e){ log('Import failed: '+e.message, 'bad'); }
-    }
+  const score = grade === 'A+' ? 90 : grade === 'A' ? 75 : 60;
+  const data = {
+    score,
+    trend:true,
+    bone:true,
+    pullback:true,
+    trigger: grade !== 'WATCH',
+    extended:false,
+    entry,
+    sl
+  };
 
-    async function copyJson(){
-      exportJson(true);
-      await navigator.clipboard.writeText(document.getElementById('jsonBox').value);
-      log('JSON copied to clipboard', 'ok');
-    }
+  const setup = makeSetup(key, data);
 
-    function resetAll(){ if(confirm('Reset console state?')){ state=defaultState(); saveState(); render(); log('Console reset', 'warn'); } }
-    function clearLog(){ state.logs=[]; saveState(); renderLog(); }
+  if(grade === 'WATCH'){
+    setup.grade = 'WATCH';
+    setup.status = 'WATCH';
+    setup.riskPct = 0;
+    setup.size = 0;
+    setup.value = 0;
+    setup.riskUSD = 0;
+  }
 
+  addPending(setup);
+}
+
+function confirmTrade(id){
+  const i = state.pending.findIndex(x => x.id === id);
+  if(i === -1) return;
+
+  const t = state.pending.splice(i,1)[0];
+
+  if(t.riskPct <= 0){
+    log(`[BLOCK] Cannot activate WATCH: ${t.name}`);
+    state.pending.unshift(t);
+    save();
     render();
-    log('System O Console loaded', 'ok');
-  </script>
+    return;
+  }
+
+  t.activatedAt = now();
+  state.active.unshift(t);
+  log(`TRADE ACTIVE: ${t.key} moved from pending to active`);
+  save();
+  render();
+}
+
+function deletePending(id){
+  state.pending = state.pending.filter(x => x.id !== id);
+  save();
+  render();
+}
+
+function markWatch(id){
+  const t = state.pending.find(x => x.id === id);
+  if(!t) return;
+  t.grade = 'WATCH';
+  t.status = 'WATCH';
+  t.riskPct = 0;
+  t.size = 0;
+  t.value = 0;
+  t.riskUSD = 0;
+  log(`Marked WATCH: ${t.key}`);
+  save();
+  render();
+}
+
+function closeActive(id,result){
+  const i = state.active.findIndex(x => x.id === id);
+  if(i === -1) return;
+  const t = state.active.splice(i,1)[0];
+  t.closedAt = now();
+  t.result = result;
+  state.journal.unshift(t);
+  log(`Trade closed: ${t.key} ${result}`);
+  save();
+  render();
+}
+
+function resetAll(){
+  localStorage.removeItem(STORAGE_KEY);
+  state = { version: VERSION, pending: [], active: [], journal: [], logs: [] };
+  log('System reset — old v4.2 data removed');
+  render();
+}
+
+function clearLog(){
+  state.logs = [];
+  save();
+  renderLog();
+}
+
+function exportData(){
+  const txt = JSON.stringify(state,null,2);
+  navigator.clipboard.writeText(txt);
+  log('Export copied to clipboard');
+}
+
+function importData(){
+  const txt = prompt('Paste exported JSON');
+  if(!txt) return;
+  try{
+    const parsed = JSON.parse(txt);
+    if(parsed.version !== VERSION) throw new Error('Wrong version');
+    state = parsed;
+    save();
+    log('Import OK');
+    render();
+  }catch(e){
+    log('Import failed');
+  }
+}
+
+function renderSetup(t, active=false){
+  const cls = t.grade === 'WATCH' ? 'setup watch' : t.grade === 'INVALID' ? 'setup invalid' : 'setup';
+  return `
+    <div class="card ${cls}">
+      <h3>${t.name} ${t.direction}</h3>
+      <div><b>Grade:</b> ${t.grade} · <b>Score:</b> ${t.score}/100 · <b>${t.status}</b></div>
+
+      <div class="row">
+        <div class="box">Entry <b>${t.entry.toFixed(2)}</b></div>
+        <div class="box">SL <b>${t.sl.toFixed(2)}</b></div>
+        <div class="box">TP2 <b>${t.tp2.toFixed(2)}</b></div>
+        <div class="box">Risk <b>${(t.riskPct*100).toFixed(1)}%</b></div>
+        <div class="box">Size <b>${t.size.toFixed(4)}</b></div>
+        <div class="box">Value <b>${money(t.value,0)}</b></div>
+      </div>
+
+      <div class="reason">
+        <b>PRO:</b> ${t.proReason}<br>
+        • Trend: ${t.checks.trend ? 'YES' : 'NO'}<br>
+        • Bone Zone: ${t.checks.bone ? 'YES' : 'NO'}<br>
+        • Pullback: ${t.checks.pullback ? 'YES' : 'NO'}<br>
+        • Trigger: ${t.checks.trigger ? 'YES' : 'NO'}<br>
+        • Extended move: ${t.checks.extended ? 'YES — blocked' : 'NO'}
+      </div>
+
+      <div class="actions">
+        ${!active ? `<button class="good" onclick="confirmTrade('${t.id}')">Confirm → Active</button>
+        <button class="warn" onclick="markWatch('${t.id}')">Keep Watch</button>
+        <button class="danger" onclick="deletePending('${t.id}')">Delete</button>` :
+        `<button class="good" onclick="closeActive('${t.id}','WIN')">Close WIN</button>
+        <button class="danger" onclick="closeActive('${t.id}','LOSS')">Close LOSS</button>`}
+      </div>
+    </div>
+  `;
+}
+
+function render(){
+  document.getElementById('pendingCount').textContent = state.pending.length;
+  document.getElementById('activeCount').textContent = state.active.length;
+
+  const scores = state.pending.map(x => x.score);
+  document.getElementById('avgScore').textContent = scores.length
+    ? Math.round(scores.reduce((a,b)=>a+b,0)/scores.length)
+    : 0;
+
+  const risk = state.pending.reduce((a,b)=>a+b.riskUSD,0);
+  document.getElementById('riskPlanned').textContent = money(risk,0);
+
+  document.getElementById('pendingList').innerHTML =
+    state.pending.length ? state.pending.map(x => renderSetup(x,false)).join('') : '<div class="sub">No pending setups.</div>';
+
+  document.getElementById('activeList').innerHTML =
+    state.active.length ? state.active.map(x => renderSetup(x,true)).join('') : '<div class="sub">No active trades.</div>';
+
+  renderLog();
+}
+
+function renderLog(){
+  document.getElementById('logBox').textContent = state.logs.join('\n');
+}
+
+load();
+log('System O v5 PRO Console loaded');
+render();
+</script>
 </body>
 </html>
