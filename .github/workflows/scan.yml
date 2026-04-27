@@ -1,4 +1,4 @@
-name: System O v5 SERVER TD
+name: System O v5.1 WATCH TD
 
 on:
   schedule:
@@ -14,11 +14,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: signal-cache.json
-          key: system-o-v5-td-${{ github.run_id }}
+          key: system-o-v51-watch-${{ github.run_id }}
           restore-keys: |
-            system-o-v5-td-
+            system-o-v51-watch-
 
-      - name: Run System O v5 PRO scanner
+      - name: Run System O v5.1 WATCH scanner
         env:
           TD_KEY: ${{ secrets.TD_KEY }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
@@ -31,8 +31,7 @@ jobs:
           const https = require('https');
           const fs = require('fs');
 
-          const VERSION = 'SYSTEM_O_V5_SERVER_TD_PRO';
-
+          const VERSION = 'SYSTEM_O_V51_WATCH_TD';
           const TD_KEY = process.env.TD_KEY;
           const TG_TOKEN = process.env.TG_TOKEN;
           const TG_CHAT_ID = process.env.TG_CHAT_ID;
@@ -44,17 +43,21 @@ jobs:
           };
 
           const MAX_EXPOSURE = 1.0;
+          const WATCH_COOLDOWN_MIN = 60;
+          const READY_COOLDOWN_MIN = 45;
+          const SETUP_COOLDOWN_MIN = 240;
 
           const INSTRUMENTS = [
-            { key: 'btc',  name: 'BTC',  sym: 'BTC/USD', dec: 2, minRR: 4, type: 'crypto' },
-            { key: 'tsla', name: 'TSLA', sym: 'TSLA',    dec: 2, minRR: 4, type: 'stock' },
-            { key: 'nvda', name: 'NVDA', sym: 'NVDA',    dec: 2, minRR: 4, type: 'stock' },
-            { key: 'goog', name: 'GOOG', sym: 'GOOG',    dec: 2, minRR: 3, type: 'stock' }
+            { key: 'btc',  name: 'BTC',  sym: 'BTC/USD', dec: 2, minRR: 4 },
+            { key: 'tsla', name: 'TSLA', sym: 'TSLA',    dec: 2, minRR: 4 },
+            { key: 'nvda', name: 'NVDA', sym: 'NVDA',    dec: 2, minRR: 4 },
+            { key: 'goog', name: 'GOOG', sym: 'GOOG',    dec: 2, minRR: 3 }
           ];
 
           let cache = {
             version: VERSION,
-            pendingSetups: {},
+            lastWatch: {},
+            lastReady: {},
             lastSignals: {},
             scans: []
           };
@@ -69,6 +72,10 @@ jobs:
           function log(msg) {
             const t = new Date().toISOString().replace('T', ' ').slice(0, 19);
             console.log(`[${t}] ${msg}`);
+          }
+
+          function nowISO() {
+            return new Date().toISOString();
           }
 
           function money(v, d = 2) {
@@ -87,8 +94,9 @@ jobs:
               .replace(/"/g, '&quot;');
           }
 
-          function nowISO() {
-            return new Date().toISOString();
+          function minutesSince(iso) {
+            if (!iso) return Infinity;
+            return (Date.now() - new Date(iso).getTime()) / 60000;
           }
 
           async function sendTG(type, message) {
@@ -125,9 +133,7 @@ jobs:
                 let data = '';
                 res.on('data', c => data += c);
                 res.on('end', () => {
-                  if (res.statusCode >= 400) {
-                    log(`[TG ERROR] ${res.statusCode} ${data}`);
-                  }
+                  if (res.statusCode >= 400) log(`[TG ERROR] ${res.statusCode} ${data}`);
                   resolve();
                 });
               });
@@ -149,9 +155,8 @@ jobs:
                 res.on('data', c => d += c);
                 res.on('end', () => {
                   try {
-                    const json = JSON.parse(d);
-                    resolve(json);
-                  } catch (e) {
+                    resolve(JSON.parse(d));
+                  } catch {
                     reject(new Error(`Bad JSON: ${d.slice(0, 120)}`));
                   }
                 });
@@ -163,20 +168,13 @@ jobs:
             if (!TD_KEY) throw new Error('Missing TD_KEY');
 
             const symbol = encodeURIComponent(instr.sym);
-            const url =
-              `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=1h&outputsize=500&apikey=${TD_KEY}`;
-
+            const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=1h&outputsize=500&apikey=${TD_KEY}`;
             const json = await httpsJSON(url);
 
-            if (json.status === 'error') {
-              throw new Error(json.message || 'Twelve Data error');
-            }
+            if (json.status === 'error') throw new Error(json.message || 'Twelve Data error');
+            if (!json.values || !Array.isArray(json.values)) throw new Error('No Twelve Data values');
 
-            if (!json.values || !Array.isArray(json.values)) {
-              throw new Error('No Twelve Data values');
-            }
-
-            const candles = json.values
+            return json.values
               .slice()
               .reverse()
               .map(x => ({
@@ -192,20 +190,13 @@ jobs:
                 Number.isFinite(x.l) &&
                 Number.isFinite(x.c)
               );
-
-            return candles;
           }
 
           function ema(data, period) {
             if (!data || data.length < period) return null;
-
             const k = 2 / (period + 1);
             let val = data[0];
-
-            for (let i = 1; i < data.length; i++) {
-              val = data[i] * k + val * (1 - k);
-            }
-
+            for (let i = 1; i < data.length; i++) val = data[i] * k + val * (1 - k);
             return val;
           }
 
@@ -213,7 +204,6 @@ jobs:
             if (closes.length < p + 2) return null;
 
             const trs = [];
-
             for (let i = 1; i < closes.length; i++) {
               trs.push(Math.max(
                 highs[i] - lows[i],
@@ -237,16 +227,42 @@ jobs:
             return price > ema50 && ema50 > ema200;
           }
 
-          function detectBoneZone(candles) {
+          function getLevels(candles, atrVal) {
             const closes = candles.map(x => x.c);
-            const price = closes.at(-1);
+            const highs = candles.map(x => x.h);
+            const lows = candles.map(x => x.l);
 
+            const price = closes.at(-1);
             const ema9 = ema(closes.slice(-40), 9);
             const ema20 = ema(closes.slice(-60), 20);
 
-            if (!ema9 || !ema20) return false;
+            const last12 = candles.slice(-12);
+            const last6 = candles.slice(-6);
 
-            return price <= ema9 * 1.008 && price >= ema20 * 0.992;
+            const hl = Math.min(...last6.map(c => c.l));
+            const breakout = Math.max(...last6.slice(0, -1).map(c => c.h));
+            const invalidation = hl - atrVal * 0.35;
+
+            const emaLow = Math.min(ema9, ema20);
+            const emaHigh = Math.max(ema9, ema20);
+
+            return {
+              price,
+              ema9,
+              ema20,
+              emaLow,
+              emaHigh,
+              hl,
+              breakout,
+              invalidation,
+              recentHigh: Math.max(...last12.map(c => c.h)),
+              recentLow: Math.min(...last12.map(c => c.l))
+            };
+          }
+
+          function detectBoneZone(levels) {
+            const p = levels.price;
+            return p <= levels.emaHigh * 1.008 && p >= levels.emaLow * 0.992;
           }
 
           function detectPullback(candles) {
@@ -282,33 +298,18 @@ jobs:
 
           function isExtendedMove(candles, atrVal) {
             if (!atrVal || candles.length < 8) return false;
-
             const last = candles.at(-1).c;
             const prev5 = candles.at(-6).c;
-            const move = last - prev5;
-
-            return move > atrVal * 1.4;
-          }
-
-          function validatePro({ trend, bone, pullback, trigger, extended }) {
-            if (extended) return { ok: false, reason: 'AFTER IMPULSE / TOO LATE' };
-            if (!trend) return { ok: false, reason: 'NO TREND' };
-            if (!bone) return { ok: false, reason: 'NO EMA / BONE ZONE' };
-            if (!pullback) return { ok: false, reason: 'NO REAL PULLBACK' };
-            if (!trigger) return { ok: false, reason: 'WATCH ONLY — WAITING FOR TRIGGER' };
-
-            return { ok: true, reason: 'PRO PULLBACK CONFIRMED' };
+            return (last - prev5) > atrVal * 1.4;
           }
 
           function scoreSetup({ trend, bone, pullback, trigger, extended }) {
             let s = 0;
-
             if (trend) s += 30;
             if (bone) s += 20;
             if (pullback) s += 20;
             if (trigger) s += 20;
             if (!extended) s += 10;
-
             return s;
           }
 
@@ -317,6 +318,16 @@ jobs:
             if (score >= 70) return { grade: 'A', risk: 0.01 };
             if (score >= 55) return { grade: 'WATCH', risk: 0 };
             return { grade: 'INVALID', risk: 0 };
+          }
+
+          function classify({ trend, bone, pullback, trigger, extended, score }) {
+            if (extended) return { status: 'BLOCKED', reason: 'AFTER IMPULSE / TOO LATE' };
+            if (!trend) return { status: score >= 55 ? 'WATCH' : 'SCANNING', reason: 'NO TREND' };
+            if (trend && !bone) return { status: 'WATCH', reason: 'TREND OK — WAIT FOR EMA / BONE ZONE' };
+            if (trend && bone && !pullback) return { status: 'WATCH', reason: 'EMA ZONE OK — WAIT FOR REAL PULLBACK' };
+            if (trend && bone && pullback && !trigger) return { status: 'READY', reason: 'SETUP FORMING — WAIT FOR TRIGGER' };
+            if (trend && bone && pullback && trigger) return { status: 'TRIGGER', reason: 'PRO PULLBACK CONFIRMED' };
+            return { status: 'SCANNING', reason: 'NO SETUP' };
           }
 
           function calcSize(balance, riskPct, entry, sl) {
@@ -338,24 +349,93 @@ jobs:
               value = maxValue;
             }
 
-            const realRiskUSD = riskPerUnit * size;
-
             return {
               size,
               value,
-              riskUSD: realRiskUSD,
+              riskUSD: riskPerUnit * size,
               riskPerUnit
             };
           }
 
-          function isDuplicate(instrKey, price) {
-            const last = cache.lastSignals[instrKey];
+          function shouldSendWatch(key, price) {
+            const last = cache.lastWatch[key];
+            if (!last) return true;
+            const age = minutesSince(last.time);
+            const diff = Math.abs(last.price - price) / price;
+            return age >= WATCH_COOLDOWN_MIN || diff >= 0.01;
+          }
+
+          function shouldSendReady(key, price) {
+            const last = cache.lastReady[key];
+            if (!last) return true;
+            const age = minutesSince(last.time);
+            const diff = Math.abs(last.price - price) / price;
+            return age >= READY_COOLDOWN_MIN || diff >= 0.007;
+          }
+
+          function isDuplicateSetup(key, price) {
+            const last = cache.lastSignals[key];
             if (!last) return false;
-
-            const ageMin = (Date.now() - new Date(last.time).getTime()) / 60000;
+            const age = minutesSince(last.time);
             const diff = Math.abs(last.entry - price) / price;
+            return age < SETUP_COOLDOWN_MIN && diff < 0.003;
+          }
 
-            return ageMin < 240 && diff < 0.003;
+          function watchMessage(instr, levels, score, cls, checks) {
+            return `👀 <b>${escapeHTML(instr.name)} — ${cls.status}</b>
+          <b>System:</b> O v5.1 WATCH
+          <b>Score:</b> ${score}/100
+          <b>Status:</b> ${escapeHTML(cls.reason)}
+
+          <b>Current:</b> ${money(levels.price, instr.dec)}
+
+          <b>Observation levels:</b>
+          • EMA zone: ${money(levels.emaLow, instr.dec)} – ${money(levels.emaHigh, instr.dec)}
+          • Last HL / support: ${money(levels.hl, instr.dec)}
+          • Breakout trigger: ${money(levels.breakout, instr.dec)}
+          • Invalidation: ${money(levels.invalidation, instr.dec)}
+
+          <b>Plan:</b>
+          → obserwuj reakcję w EMA zone
+          → entry dopiero po świecy trigger nad ${money(levels.breakout, instr.dec)}
+          → nie gonić ceny po impulsie
+
+          <b>Checks:</b>
+          • Trend: ${checks.trend ? 'YES' : 'NO'}
+          • Bone Zone: ${checks.bone ? 'YES' : 'NO'}
+          • Pullback: ${checks.pullback ? 'YES' : 'NO'}
+          • Trigger: ${checks.trigger ? 'YES' : 'NO'}
+          • Extended: ${checks.extended ? 'YES — blocked' : 'NO'}`;
+          }
+
+          function setupMessage(instr, levels, score, grade, risk, pos, sl, tp2, checks) {
+            return `🚀 <b>${escapeHTML(instr.name)} LONG</b>
+          <b>System:</b> O v5.1 WATCH TD
+          <b>Grade:</b> ${grade}
+          <b>Score:</b> ${score}/100
+
+          <b>Entry:</b> ${money(levels.price, instr.dec)}
+          <b>SL:</b> ${money(sl, instr.dec)}
+          <b>TP2:</b> ${money(tp2, instr.dec)}
+
+          <b>Risk:</b> ${(risk * 100).toFixed(1)}%
+          <b>Risk USD:</b> $${money(pos.riskUSD, 0)}
+          <b>Size:</b> ${money(pos.size, 4)}
+          <b>Value:</b> $${money(pos.value, 0)}
+          <b>Risk/unit:</b> $${money(pos.riskPerUnit, 2)}
+
+          <b>Levels:</b>
+          • EMA zone: ${money(levels.emaLow, instr.dec)} – ${money(levels.emaHigh, instr.dec)}
+          • HL: ${money(levels.hl, instr.dec)}
+          • Breakout: ${money(levels.breakout, instr.dec)}
+          • Invalidation: ${money(levels.invalidation, instr.dec)}
+
+          <b>Checks:</b>
+          • Trend: ${checks.trend ? 'YES' : 'NO'}
+          • Bone Zone: ${checks.bone ? 'YES' : 'NO'}
+          • Pullback: ${checks.pullback ? 'YES' : 'NO'}
+          • Trigger: ${checks.trigger ? 'YES' : 'NO'}
+          • Extended: ${checks.extended ? 'YES — blocked' : 'NO'}`;
           }
 
           async function scan(instr) {
@@ -369,8 +449,6 @@ jobs:
             const closes = candles.map(c => c.c);
             const highs = candles.map(c => c.h);
             const lows = candles.map(c => c.l);
-
-            const price = closes.at(-1);
             const atrVal = atr(highs, lows, closes, 14);
 
             if (!atrVal) {
@@ -378,101 +456,77 @@ jobs:
               return;
             }
 
+            const levels = getLevels(candles, atrVal);
             const trend = detectTrend(candles);
-            const bone = detectBoneZone(candles);
+            const bone = detectBoneZone(levels);
             const pullback = detectPullback(candles);
             const trigger = detectTrigger(candles);
             const extended = isExtendedMove(candles, atrVal);
 
-            const pro = validatePro({ trend, bone, pullback, trigger, extended });
-            const score = scoreSetup({ trend, bone, pullback, trigger, extended });
+            const checks = { trend, bone, pullback, trigger, extended };
+            const score = scoreSetup(checks);
+            const cls = classify({ ...checks, score });
             const { grade, risk } = gradeFromScore(score);
 
-            const status = pro.ok ? 'TRIGGER' : (score >= 55 ? 'WATCH' : 'SCANNING');
-
-            log(`[SCAN] ${instr.name} | Status: ${status} | Score: ${score} | ${pro.reason}`);
+            log(`[SCAN] ${instr.name} | ${cls.status} | Score ${score} | ${cls.reason}`);
 
             cache.scans.unshift({
               time: nowISO(),
               key: instr.key,
               name: instr.name,
-              price,
+              price: levels.price,
               score,
-              status,
-              reason: pro.reason
+              status: cls.status,
+              reason: cls.reason,
+              levels
             });
+            cache.scans = cache.scans.slice(0, 150);
 
-            cache.scans = cache.scans.slice(0, 100);
-
-            if (!pro.ok) return;
-            if (grade === 'WATCH' || grade === 'INVALID' || risk <= 0) return;
-
-            if (isDuplicate(instr.key, price)) {
-              log(`[SKIP] ${instr.name} | Duplicate signal`);
+            if ((cls.status === 'WATCH') && score >= 60 && shouldSendWatch(instr.key, levels.price)) {
+              await sendTG('SYSTEM', watchMessage(instr, levels, score, cls, checks));
+              cache.lastWatch[instr.key] = { time: nowISO(), price: levels.price, score, status: cls.status };
+              log(`[WATCH SENT] ${instr.name} Score ${score}`);
               return;
             }
 
-            const sl = price - atrVal * 1.2;
-            const tp2 = price + (price - sl) * instr.minRR;
+            if (cls.status === 'READY' && score >= 70 && shouldSendReady(instr.key, levels.price)) {
+              await sendTG('SYSTEM', watchMessage(instr, levels, score, cls, checks));
+              cache.lastReady[instr.key] = { time: nowISO(), price: levels.price, score, status: cls.status };
+              log(`[READY SENT] ${instr.name} Score ${score}`);
+              return;
+            }
 
-            const pos = calcSize(ACCOUNT_BALANCE, risk, price, sl);
+            if (cls.status !== 'TRIGGER') return;
+            if (grade === 'WATCH' || grade === 'INVALID' || risk <= 0) return;
+
+            if (isDuplicateSetup(instr.key, levels.price)) {
+              log(`[SKIP] ${instr.name} | Duplicate setup`);
+              return;
+            }
+
+            const sl = levels.price - atrVal * 1.2;
+            const tp2 = levels.price + (levels.price - sl) * instr.minRR;
+            const pos = calcSize(ACCOUNT_BALANCE, risk, levels.price, sl);
 
             if (pos.value <= 0 || pos.riskUSD <= 0) {
               log(`[SKIP] ${instr.name} | Invalid position size`);
               return;
             }
 
-            const msg =
-          `🚀 <b>${escapeHTML(instr.name)} LONG</b>
-          <b>System:</b> O v5 SERVER TD PRO
-          <b>Grade:</b> ${grade}
-          <b>Score:</b> ${score}/100
-
-          <b>Entry:</b> ${money(price, instr.dec)}
-          <b>SL:</b> ${money(sl, instr.dec)}
-          <b>TP2:</b> ${money(tp2, instr.dec)}
-
-          <b>Risk:</b> ${(risk * 100).toFixed(1)}%
-          <b>Risk USD:</b> $${money(pos.riskUSD, 0)}
-          <b>Size:</b> ${money(pos.size, 4)}
-          <b>Value:</b> $${money(pos.value, 0)}
-          <b>Risk/unit:</b> $${money(pos.riskPerUnit, 2)}
-
-          <b>PRO:</b> ${escapeHTML(pro.reason)}
-
-          • Trend: ${trend ? 'YES' : 'NO'}
-          • Bone Zone: ${bone ? 'YES' : 'NO'}
-          • Pullback: ${pullback ? 'YES' : 'NO'}
-          • Trigger: ${trigger ? 'YES' : 'NO'}
-          • Extended: ${extended ? 'YES — blocked' : 'NO'}`;
-
-            await sendTG('SETUP', msg);
-
-            cache.pendingSetups[instr.key] = {
-              direction: 'LONG',
-              entry: price,
-              sl,
-              tp2,
-              grade,
-              score,
-              risk,
-              riskUSD: pos.riskUSD,
-              value: pos.value,
-              createdAt: nowISO()
-            };
+            await sendTG('SETUP', setupMessage(instr, levels, score, grade, risk, pos, sl, tp2, checks));
 
             cache.lastSignals[instr.key] = {
               time: nowISO(),
-              entry: price,
+              entry: levels.price,
               score,
               grade
             };
 
-            log(`[SIGNAL] ${instr.name} ${grade} Score ${score}`);
+            log(`[SETUP SENT] ${instr.name} ${grade} Score ${score}`);
           }
 
           async function main() {
-            log('--- SYSTEM O v5 SERVER TD PRO START ---');
+            log('--- SYSTEM O v5.1 WATCH TD START ---');
 
             for (const instr of INSTRUMENTS) {
               try {
@@ -484,8 +538,7 @@ jobs:
             }
 
             fs.writeFileSync('signal-cache.json', JSON.stringify(cache, null, 2));
-
-            log('--- SYSTEM O v5 SERVER TD PRO END ---');
+            log('--- SYSTEM O v5.1 WATCH TD END ---');
           }
 
           main();
