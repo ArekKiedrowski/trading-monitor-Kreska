@@ -1,4 +1,4 @@
-name: System O v5.1 WATCH TD
+name: System O v5.4 CLEAR EXIT ALERTS
 
 on:
   schedule:
@@ -10,535 +10,373 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Restore signal cache
+      - name: Restore cache
         uses: actions/cache@v4
         with:
           path: signal-cache.json
-          key: system-o-v51-watch-${{ github.run_id }}
+          key: system-o-v54-${{ github.run_id }}
           restore-keys: |
-            system-o-v51-watch-
+            system-o-v54-
 
-      - name: Run System O v5.1 WATCH scanner
+      - name: Run System O v5.4
         env:
           TD_KEY: ${{ secrets.TD_KEY }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          ACCOUNT_BALANCE: ${{ secrets.ACCOUNT_BALANCE }}
-          TG_THREAD_SETUPS: ${{ secrets.TG_THREAD_SETUPS }}
-          TG_THREAD_SYSTEM: ${{ secrets.TG_THREAD_SYSTEM }}
         run: |
           node << 'SCRIPT'
           const https = require('https');
           const fs = require('fs');
 
-          const VERSION = 'SYSTEM_O_V51_WATCH_TD';
           const TD_KEY = process.env.TD_KEY;
           const TG_TOKEN = process.env.TG_TOKEN;
           const TG_CHAT_ID = process.env.TG_CHAT_ID;
-          const ACCOUNT_BALANCE = parseFloat(process.env.ACCOUNT_BALANCE || '10000');
 
-          const TG_THREADS = {
-            SETUP: Number(process.env.TG_THREAD_SETUPS || '2'),
-            SYSTEM: Number(process.env.TG_THREAD_SYSTEM || '4')
-          };
-
-          const MAX_EXPOSURE = 1.0;
-          const WATCH_COOLDOWN_MIN = 60;
-          const READY_COOLDOWN_MIN = 45;
-          const SETUP_COOLDOWN_MIN = 240;
+          const VERSION = 'SYSTEM_O_V54_CLEAR_EXIT';
 
           const INSTRUMENTS = [
-            { key: 'btc',  name: 'BTC',  sym: 'BTC/USD', dec: 2, minRR: 4 },
-            { key: 'tsla', name: 'TSLA', sym: 'TSLA',    dec: 2, minRR: 4 },
-            { key: 'nvda', name: 'NVDA', sym: 'NVDA',    dec: 2, minRR: 4 },
-            { key: 'goog', name: 'GOOG', sym: 'GOOG',    dec: 2, minRR: 3 }
+            { key:'nvda', name:'NVDA', sym:'NVDA', dec:2 },
+            { key:'tsla', name:'TSLA', sym:'TSLA', dec:2 },
+            { key:'goog', name:'GOOG', sym:'GOOG', dec:2 },
+            { key:'btc',  name:'BTC',  sym:'BTC/USD', dec:2 }
           ];
 
           let cache = {
             version: VERSION,
-            lastWatch: {},
-            lastReady: {},
-            lastSignals: {},
-            scans: []
+            lastAlert: {},
+            activeTrades: {}
           };
 
           try {
             if (fs.existsSync('signal-cache.json')) {
-              const parsed = JSON.parse(fs.readFileSync('signal-cache.json', 'utf8'));
-              if (parsed && parsed.version === VERSION) cache = parsed;
+              const parsed = JSON.parse(fs.readFileSync('signal-cache.json','utf8'));
+              if (parsed.version === VERSION) cache = parsed;
             }
           } catch {}
 
-          function log(msg) {
-            const t = new Date().toISOString().replace('T', ' ').slice(0, 19);
+          function log(msg){
+            const t = new Date().toISOString().replace('T',' ').slice(0,19);
             console.log(`[${t}] ${msg}`);
           }
 
-          function nowISO() {
-            return new Date().toISOString();
+          function money(v,d=2){ return Number(v || 0).toFixed(d); }
+
+          function minutesSince(t){
+            if(!t) return Infinity;
+            return (Date.now() - new Date(t).getTime()) / 60000;
           }
 
-          function money(v, d = 2) {
-            return Number(v || 0).toFixed(d);
+          function canSend(key, type, mins=45){
+            const id = `${key}_${type}`;
+            return minutesSince(cache.lastAlert[id]) >= mins;
           }
 
-          function sleep(ms) {
-            return new Promise(r => setTimeout(r, ms));
+          function markSent(key,type){
+            cache.lastAlert[`${key}_${type}`] = new Date().toISOString();
           }
 
-          function escapeHTML(str) {
-            return String(str)
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/"/g, '&quot;');
-          }
+          function send(msg){
+            if(!TG_TOKEN || !TG_CHAT_ID) return;
 
-          function minutesSince(iso) {
-            if (!iso) return Infinity;
-            return (Date.now() - new Date(iso).getTime()) / 60000;
-          }
-
-          async function sendTG(type, message) {
-            if (!TG_TOKEN || !TG_CHAT_ID) {
-              log('[TG] Missing TG_TOKEN or TG_CHAT_ID');
-              return;
-            }
-
-            const payload = {
+            const body = JSON.stringify({
               chat_id: TG_CHAT_ID,
-              text: message,
-              parse_mode: 'HTML',
-              disable_web_page_preview: true
-            };
+              text: msg
+            });
 
-            if (TG_THREADS[type] && TG_THREADS[type] > 0) {
-              payload.message_thread_id = TG_THREADS[type];
-            }
-
-            const body = JSON.stringify(payload);
-
-            const opts = {
-              hostname: 'api.telegram.org',
-              path: `/bot${TG_TOKEN}/sendMessage`,
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(body)
+            const req = https.request({
+              hostname:'api.telegram.org',
+              path:`/bot${TG_TOKEN}/sendMessage`,
+              method:'POST',
+              headers:{
+                'Content-Type':'application/json',
+                'Content-Length':Buffer.byteLength(body)
               }
-            };
+            });
 
-            return new Promise(resolve => {
-              const req = https.request(opts, res => {
-                let data = '';
-                res.on('data', c => data += c);
-                res.on('end', () => {
-                  if (res.statusCode >= 400) log(`[TG ERROR] ${res.statusCode} ${data}`);
-                  resolve();
+            req.on('error',()=>{});
+            req.write(body);
+            req.end();
+          }
+
+          function fetchData(sym){
+            return new Promise((resolve,reject)=>{
+              const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=1h&outputsize=200&apikey=${TD_KEY}`;
+
+              https.get(url,res=>{
+                let d='';
+                res.on('data',c=>d+=c);
+                res.on('end',()=>{
+                  try{
+                    const j = JSON.parse(d);
+                    if(!j.values) return reject(new Error(j.message || 'No values'));
+
+                    const data = j.values.slice().reverse().map(x=>({
+                      close: parseFloat(x.close),
+                      high: parseFloat(x.high),
+                      low: parseFloat(x.low),
+                      open: parseFloat(x.open)
+                    })).filter(x=>Number.isFinite(x.close));
+
+                    resolve(data);
+                  }catch(e){ reject(e); }
                 });
-              });
-
-              req.on('error', e => {
-                log(`[TG ERROR] ${e.message}`);
-                resolve();
-              });
-
-              req.write(body);
-              req.end();
+              }).on('error',reject);
             });
           }
 
-          function httpsJSON(url) {
-            return new Promise((resolve, reject) => {
-              https.get(url, res => {
-                let d = '';
-                res.on('data', c => d += c);
-                res.on('end', () => {
-                  try {
-                    resolve(JSON.parse(d));
-                  } catch {
-                    reject(new Error(`Bad JSON: ${d.slice(0, 120)}`));
-                  }
-                });
-              }).on('error', reject);
-            });
+          function ema(data,p){
+            if(data.length < p) return null;
+            let k=2/(p+1), v=data[0];
+            for(let i=1;i<data.length;i++) v=data[i]*k + v*(1-k);
+            return v;
           }
 
-          async function fetchTwelveData(instr) {
-            if (!TD_KEY) throw new Error('Missing TD_KEY');
-
-            const symbol = encodeURIComponent(instr.sym);
-            const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=1h&outputsize=500&apikey=${TD_KEY}`;
-            const json = await httpsJSON(url);
-
-            if (json.status === 'error') throw new Error(json.message || 'Twelve Data error');
-            if (!json.values || !Array.isArray(json.values)) throw new Error('No Twelve Data values');
-
-            return json.values
-              .slice()
-              .reverse()
-              .map(x => ({
-                t: new Date(x.datetime).getTime() / 1000,
-                o: parseFloat(x.open),
-                h: parseFloat(x.high),
-                l: parseFloat(x.low),
-                c: parseFloat(x.close)
-              }))
-              .filter(x =>
-                Number.isFinite(x.o) &&
-                Number.isFinite(x.h) &&
-                Number.isFinite(x.l) &&
-                Number.isFinite(x.c)
-              );
-          }
-
-          function ema(data, period) {
-            if (!data || data.length < period) return null;
-            const k = 2 / (period + 1);
-            let val = data[0];
-            for (let i = 1; i < data.length; i++) val = data[i] * k + val * (1 - k);
-            return val;
-          }
-
-          function atr(highs, lows, closes, p = 14) {
-            if (closes.length < p + 2) return null;
-
-            const trs = [];
-            for (let i = 1; i < closes.length; i++) {
+          function atr(data,p=14){
+            if(data.length < p+2) return null;
+            let trs=[];
+            for(let i=1;i<data.length;i++){
               trs.push(Math.max(
-                highs[i] - lows[i],
-                Math.abs(highs[i] - closes[i - 1]),
-                Math.abs(lows[i] - closes[i - 1])
+                data[i].high-data[i].low,
+                Math.abs(data[i].high-data[i-1].close),
+                Math.abs(data[i].low-data[i-1].close)
               ));
             }
-
-            const last = trs.slice(-p);
-            return last.reduce((a, b) => a + b, 0) / p;
+            return trs.slice(-p).reduce((a,b)=>a+b,0)/p;
           }
 
-          function detectTrend(candles) {
-            const closes = candles.map(x => x.c);
-            if (closes.length < 220) return false;
-
-            const ema50 = ema(closes.slice(-90), 50);
-            const ema200 = ema(closes.slice(-240), 200);
+          function levels(data){
+            const closes = data.map(x=>x.close);
             const price = closes.at(-1);
+            const ema20 = ema(closes.slice(-60),20);
+            const ema50 = ema(closes.slice(-120),50);
+            const atrVal = atr(data);
 
-            return price > ema50 && ema50 > ema200;
+            const last6 = data.slice(-6);
+            const localHigh = Math.max(...last6.slice(0,-1).map(x=>x.high));
+            const localLow = Math.min(...last6.map(x=>x.low));
+
+            const zoneLow = ema20 - atrVal*0.2;
+            const zoneHigh = ema20 + atrVal*0.2;
+
+            const sl = zoneLow - atrVal*0.5;
+            const trigger = localHigh;
+            const tp1 = trigger + (trigger - sl) * 1.5;
+            const tp2 = trigger + (trigger - sl) * 3;
+
+            return { price, ema20, ema50, atrVal, zoneLow, zoneHigh, localHigh, localLow, trigger, sl, tp1, tp2 };
           }
 
-          function getLevels(candles, atrVal) {
-            const closes = candles.map(x => x.c);
-            const highs = candles.map(x => x.h);
-            const lows = candles.map(x => x.l);
+          function scanSignal(instr, lv){
+            const trend = lv.price > lv.ema50;
+            const distance = (lv.price - lv.ema20) / lv.ema20;
+            const extended = distance > 0.02;
+            const inZone = lv.price >= lv.zoneLow && lv.price <= lv.zoneHigh;
+            const nearZone = distance > 0.003 && distance <= 0.02;
+            const triggerNow = lv.price > lv.trigger && inZone;
 
-            const price = closes.at(-1);
-            const ema9 = ema(closes.slice(-40), 9);
-            const ema20 = ema(closes.slice(-60), 20);
+            if(!trend) return 'NO_TRADE';
+            if(extended) return 'TOO_LATE';
+            if(nearZone) return 'WATCH';
+            if(inZone && !triggerNow) return 'READY';
+            if(triggerNow) return 'ENTRY';
 
-            const last12 = candles.slice(-12);
-            const last6 = candles.slice(-6);
-
-            const hl = Math.min(...last6.map(c => c.l));
-            const breakout = Math.max(...last6.slice(0, -1).map(c => c.h));
-            const invalidation = hl - atrVal * 0.35;
-
-            const emaLow = Math.min(ema9, ema20);
-            const emaHigh = Math.max(ema9, ema20);
-
-            return {
-              price,
-              ema9,
-              ema20,
-              emaLow,
-              emaHigh,
-              hl,
-              breakout,
-              invalidation,
-              recentHigh: Math.max(...last12.map(c => c.h)),
-              recentLow: Math.min(...last12.map(c => c.l))
-            };
+            return 'NO_TRADE';
           }
 
-          function detectBoneZone(levels) {
-            const p = levels.price;
-            return p <= levels.emaHigh * 1.008 && p >= levels.emaLow * 0.992;
-          }
+          function manageTrade(instr, lv){
+            const t = cache.activeTrades[instr.key];
+            if(!t) return;
 
-          function detectPullback(candles) {
-            const last6 = candles.slice(-6);
-            const red = last6.filter(c => c.c < c.o).length;
+            const price = lv.price;
+            const risk = Math.abs(t.entry - t.sl);
+            const rNow = (price - t.entry) / risk;
 
-            let lowerCloses = 0;
-            for (let i = 1; i < last6.length; i++) {
-              if (last6[i].c < last6[i - 1].c) lowerCloses++;
-            }
+            if(price <= t.sl && !t.closed){
+              send(`🛑 EXIT: ${instr.name}
 
-            return red >= 2 || lowerCloses >= 2;
-          }
+SL trafiony lub struktura złamana.
 
-          function detectTrigger(candles) {
-            if (candles.length < 3) return false;
+Entry: ${money(t.entry,instr.dec)}
+Exit area: ${money(price,instr.dec)}
 
-            const last = candles.at(-1);
-            const prev = candles.at(-2);
-
-            const body = Math.abs(last.c - last.o);
-            const range = last.h - last.l;
-            if (range <= 0) return false;
-
-            const bodyRatio = body / range;
-
-            return (
-              last.c > last.o &&
-              last.c > prev.h &&
-              bodyRatio > 0.45
-            );
-          }
-
-          function isExtendedMove(candles, atrVal) {
-            if (!atrVal || candles.length < 8) return false;
-            const last = candles.at(-1).c;
-            const prev5 = candles.at(-6).c;
-            return (last - prev5) > atrVal * 1.4;
-          }
-
-          function scoreSetup({ trend, bone, pullback, trigger, extended }) {
-            let s = 0;
-            if (trend) s += 30;
-            if (bone) s += 20;
-            if (pullback) s += 20;
-            if (trigger) s += 20;
-            if (!extended) s += 10;
-            return s;
-          }
-
-          function gradeFromScore(score) {
-            if (score >= 85) return { grade: 'A+', risk: 0.02 };
-            if (score >= 70) return { grade: 'A', risk: 0.01 };
-            if (score >= 55) return { grade: 'WATCH', risk: 0 };
-            return { grade: 'INVALID', risk: 0 };
-          }
-
-          function classify({ trend, bone, pullback, trigger, extended, score }) {
-            if (extended) return { status: 'BLOCKED', reason: 'AFTER IMPULSE / TOO LATE' };
-            if (!trend) return { status: score >= 55 ? 'WATCH' : 'SCANNING', reason: 'NO TREND' };
-            if (trend && !bone) return { status: 'WATCH', reason: 'TREND OK — WAIT FOR EMA / BONE ZONE' };
-            if (trend && bone && !pullback) return { status: 'WATCH', reason: 'EMA ZONE OK — WAIT FOR REAL PULLBACK' };
-            if (trend && bone && pullback && !trigger) return { status: 'READY', reason: 'SETUP FORMING — WAIT FOR TRIGGER' };
-            if (trend && bone && pullback && trigger) return { status: 'TRIGGER', reason: 'PRO PULLBACK CONFIRMED' };
-            return { status: 'SCANNING', reason: 'NO SETUP' };
-          }
-
-          function calcSize(balance, riskPct, entry, sl) {
-            const riskUSDTarget = balance * riskPct;
-            const riskPerUnit = Math.abs(entry - sl);
-
-            if (riskPerUnit <= 0 || riskPct <= 0) {
-              return { size: 0, value: 0, riskUSD: 0, riskPerUnit };
-            }
-
-            let size = riskUSDTarget / riskPerUnit;
-            let value = size * entry;
-
-            const maxValue = balance * MAX_EXPOSURE;
-
-            if (value > maxValue) {
-              const factor = maxValue / value;
-              size *= factor;
-              value = maxValue;
-            }
-
-            return {
-              size,
-              value,
-              riskUSD: riskPerUnit * size,
-              riskPerUnit
-            };
-          }
-
-          function shouldSendWatch(key, price) {
-            const last = cache.lastWatch[key];
-            if (!last) return true;
-            const age = minutesSince(last.time);
-            const diff = Math.abs(last.price - price) / price;
-            return age >= WATCH_COOLDOWN_MIN || diff >= 0.01;
-          }
-
-          function shouldSendReady(key, price) {
-            const last = cache.lastReady[key];
-            if (!last) return true;
-            const age = minutesSince(last.time);
-            const diff = Math.abs(last.price - price) / price;
-            return age >= READY_COOLDOWN_MIN || diff >= 0.007;
-          }
-
-          function isDuplicateSetup(key, price) {
-            const last = cache.lastSignals[key];
-            if (!last) return false;
-            const age = minutesSince(last.time);
-            const diff = Math.abs(last.entry - price) / price;
-            return age < SETUP_COOLDOWN_MIN && diff < 0.003;
-          }
-
-          function watchMessage(instr, levels, score, cls, checks) {
-            return `👀 <b>${escapeHTML(instr.name)} — ${cls.status}</b>
-          <b>System:</b> O v5.1 WATCH
-          <b>Score:</b> ${score}/100
-          <b>Status:</b> ${escapeHTML(cls.reason)}
-
-          <b>Current:</b> ${money(levels.price, instr.dec)}
-
-          <b>Observation levels:</b>
-          • EMA zone: ${money(levels.emaLow, instr.dec)} – ${money(levels.emaHigh, instr.dec)}
-          • Last HL / support: ${money(levels.hl, instr.dec)}
-          • Breakout trigger: ${money(levels.breakout, instr.dec)}
-          • Invalidation: ${money(levels.invalidation, instr.dec)}
-
-          <b>Plan:</b>
-          → obserwuj reakcję w EMA zone
-          → entry dopiero po świecy trigger nad ${money(levels.breakout, instr.dec)}
-          → nie gonić ceny po impulsie
-
-          <b>Checks:</b>
-          • Trend: ${checks.trend ? 'YES' : 'NO'}
-          • Bone Zone: ${checks.bone ? 'YES' : 'NO'}
-          • Pullback: ${checks.pullback ? 'YES' : 'NO'}
-          • Trigger: ${checks.trigger ? 'YES' : 'NO'}
-          • Extended: ${checks.extended ? 'YES — blocked' : 'NO'}`;
-          }
-
-          function setupMessage(instr, levels, score, grade, risk, pos, sl, tp2, checks) {
-            return `🚀 <b>${escapeHTML(instr.name)} LONG</b>
-          <b>System:</b> O v5.1 WATCH TD
-          <b>Grade:</b> ${grade}
-          <b>Score:</b> ${score}/100
-
-          <b>Entry:</b> ${money(levels.price, instr.dec)}
-          <b>SL:</b> ${money(sl, instr.dec)}
-          <b>TP2:</b> ${money(tp2, instr.dec)}
-
-          <b>Risk:</b> ${(risk * 100).toFixed(1)}%
-          <b>Risk USD:</b> $${money(pos.riskUSD, 0)}
-          <b>Size:</b> ${money(pos.size, 4)}
-          <b>Value:</b> $${money(pos.value, 0)}
-          <b>Risk/unit:</b> $${money(pos.riskPerUnit, 2)}
-
-          <b>Levels:</b>
-          • EMA zone: ${money(levels.emaLow, instr.dec)} – ${money(levels.emaHigh, instr.dec)}
-          • HL: ${money(levels.hl, instr.dec)}
-          • Breakout: ${money(levels.breakout, instr.dec)}
-          • Invalidation: ${money(levels.invalidation, instr.dec)}
-
-          <b>Checks:</b>
-          • Trend: ${checks.trend ? 'YES' : 'NO'}
-          • Bone Zone: ${checks.bone ? 'YES' : 'NO'}
-          • Pullback: ${checks.pullback ? 'YES' : 'NO'}
-          • Trigger: ${checks.trigger ? 'YES' : 'NO'}
-          • Extended: ${checks.extended ? 'YES — blocked' : 'NO'}`;
-          }
-
-          async function scan(instr) {
-            const candles = await fetchTwelveData(instr);
-
-            if (candles.length < 220) {
-              log(`[SKIP] ${instr.name} | Not enough candles: ${candles.length}`);
+Trade zamknięty.`);
+              t.closed = true;
+              delete cache.activeTrades[instr.key];
               return;
             }
 
-            const closes = candles.map(c => c.c);
-            const highs = candles.map(c => c.h);
-            const lows = candles.map(c => c.l);
-            const atrVal = atr(highs, lows, closes, 14);
+            if(rNow >= 1 && !t.beAlert){
+              send(`🛡️ PRZESUŃ SL: ${instr.name}
 
-            if (!atrVal) {
-              log(`[SKIP] ${instr.name} | No ATR`);
+Trade jest na +1R.
+
+Zrób:
+SL → BE / okolice wejścia
+
+Entry: ${money(t.entry,instr.dec)}
+Nowa ochrona: ${money(t.entry,instr.dec)}`);
+              t.beAlert = true;
               return;
             }
 
-            const levels = getLevels(candles, atrVal);
-            const trend = detectTrend(candles);
-            const bone = detectBoneZone(levels);
-            const pullback = detectPullback(candles);
-            const trigger = detectTrigger(candles);
-            const extended = isExtendedMove(candles, atrVal);
+            if(rNow >= 2 && !t.secureAlert){
+              send(`💰 ZABEZPIECZ ZYSK: ${instr.name}
 
-            const checks = { trend, bone, pullback, trigger, extended };
-            const score = scoreSetup(checks);
-            const cls = classify({ ...checks, score });
-            const { grade, risk } = gradeFromScore(score);
+Trade jest mocno na plusie.
 
-            log(`[SCAN] ${instr.name} | ${cls.status} | Score ${score} | ${cls.reason}`);
+Zrób:
+SL → pod ostatni wyższy dołek
+albo zamknij część pozycji.
 
-            cache.scans.unshift({
-              time: nowISO(),
-              key: instr.key,
-              name: instr.name,
-              price: levels.price,
-              score,
-              status: cls.status,
-              reason: cls.reason,
-              levels
-            });
-            cache.scans = cache.scans.slice(0, 150);
-
-            if ((cls.status === 'WATCH') && score >= 60 && shouldSendWatch(instr.key, levels.price)) {
-              await sendTG('SYSTEM', watchMessage(instr, levels, score, cls, checks));
-              cache.lastWatch[instr.key] = { time: nowISO(), price: levels.price, score, status: cls.status };
-              log(`[WATCH SENT] ${instr.name} Score ${score}`);
+Aktualna cena: ${money(price,instr.dec)}`);
+              t.secureAlert = true;
               return;
             }
 
-            if (cls.status === 'READY' && score >= 70 && shouldSendReady(instr.key, levels.price)) {
-              await sendTG('SYSTEM', watchMessage(instr, levels, score, cls, checks));
-              cache.lastReady[instr.key] = { time: nowISO(), price: levels.price, score, status: cls.status };
-              log(`[READY SENT] ${instr.name} Score ${score}`);
+            if(price < lv.ema20 && !t.exitWarning && rNow > 0.5){
+              send(`⚠️ EXIT WARNING: ${instr.name}
+
+Cena traci momentum.
+Nie zamykaj w panice, ale obserwuj.
+
+Jeśli kolejna świeca H1 zamknie się słabo:
+→ rozważ wyjście ręczne.
+
+Cena: ${money(price,instr.dec)}
+EMA20: ${money(lv.ema20,instr.dec)}`);
+              t.exitWarning = true;
               return;
             }
 
-            if (cls.status !== 'TRIGGER') return;
-            if (grade === 'WATCH' || grade === 'INVALID' || risk <= 0) return;
+            if(price >= t.tp1 && !t.tp1Alert){
+              send(`🎯 TP1 HIT: ${instr.name}
 
-            if (isDuplicateSetup(instr.key, levels.price)) {
-              log(`[SKIP] ${instr.name} | Duplicate setup`);
+Pierwszy cel osiągnięty.
+
+Zrób:
+część zysku możesz zabezpieczyć,
+SL minimum na BE.
+
+Cena: ${money(price,instr.dec)}`);
+              t.tp1Alert = true;
               return;
             }
 
-            const sl = levels.price - atrVal * 1.2;
-            const tp2 = levels.price + (levels.price - sl) * instr.minRR;
-            const pos = calcSize(ACCOUNT_BALANCE, risk, levels.price, sl);
+            if(price >= t.tp2 && !t.tp2Alert){
+              send(`🏆 TP2 HIT: ${instr.name}
 
-            if (pos.value <= 0 || pos.riskUSD <= 0) {
-              log(`[SKIP] ${instr.name} | Invalid position size`);
+Duży ruch złapany.
+
+Zrób:
+mocno zabezpiecz zysk
+albo zamknij większość pozycji.
+
+Cena: ${money(price,instr.dec)}`);
+              t.tp2Alert = true;
               return;
             }
-
-            await sendTG('SETUP', setupMessage(instr, levels, score, grade, risk, pos, sl, tp2, checks));
-
-            cache.lastSignals[instr.key] = {
-              time: nowISO(),
-              entry: levels.price,
-              score,
-              grade
-            };
-
-            log(`[SETUP SENT] ${instr.name} ${grade} Score ${score}`);
           }
 
-          async function main() {
-            log('--- SYSTEM O v5.1 WATCH TD START ---');
+          async function scan(instr){
+            const data = await fetchData(instr.sym);
+            const lv = levels(data);
 
-            for (const instr of INSTRUMENTS) {
-              try {
+            manageTrade(instr, lv);
+
+            const signal = scanSignal(instr, lv);
+
+            if(signal === 'NO_TRADE') return;
+
+            if(signal === 'TOO_LATE' && canSend(instr.key,'too_late',60)){
+              send(`🛑 NIE WCHODŹ: ${instr.name}
+
+Ruch już poszedł.
+To jest gonienie rynku.
+
+Czekamy na nowe cofnięcie.`);
+              markSent(instr.key,'too_late');
+              return;
+            }
+
+            if(signal === 'WATCH' && canSend(instr.key,'watch',60)){
+              send(`👀 OBSERWUJ: ${instr.name}
+
+Jeszcze NIE wchodź.
+
+Interesuje nas cofnięcie do:
+${money(lv.zoneLow,instr.dec)} – ${money(lv.zoneHigh,instr.dec)}
+
+Wejście dopiero po wybiciu:
+${money(lv.trigger,instr.dec)}
+
+Setup anulowany poniżej:
+${money(lv.sl,instr.dec)}`);
+              markSent(instr.key,'watch');
+              return;
+            }
+
+            if(signal === 'READY' && canSend(instr.key,'ready',45)){
+              send(`🟡 PRZYGOTUJ SIĘ: ${instr.name}
+
+Cena jest w dobrej strefie.
+Jeszcze NIE klikaj.
+
+Czekamy na wybicie:
+${money(lv.trigger,instr.dec)}
+
+Plan:
+Entry: ${money(lv.trigger,instr.dec)}
+SL: ${money(lv.sl,instr.dec)}
+TP1: ${money(lv.tp1,instr.dec)}
+TP2: ${money(lv.tp2,instr.dec)}`);
+              markSent(instr.key,'ready');
+              return;
+            }
+
+            if(signal === 'ENTRY' && canSend(instr.key,'entry',240)){
+              send(`🚀 WEJŚCIE: ${instr.name} LONG
+
+Entry: ${money(lv.price,instr.dec)}
+SL: ${money(lv.sl,instr.dec)}
+TP1: ${money(lv.tp1,instr.dec)}
+TP2: ${money(lv.tp2,instr.dec)}
+
+Plan:
++1R → SL na BE
++2R → zabezpiecz zysk
+utrata EMA20 → exit warning`);
+
+              cache.activeTrades[instr.key] = {
+                entry: lv.price,
+                sl: lv.sl,
+                tp1: lv.tp1,
+                tp2: lv.tp2,
+                createdAt: new Date().toISOString(),
+                beAlert:false,
+                secureAlert:false,
+                tp1Alert:false,
+                tp2Alert:false,
+                exitWarning:false
+              };
+
+              markSent(instr.key,'entry');
+              return;
+            }
+          }
+
+          async function main(){
+            log('--- SYSTEM O v5.4 CLEAR EXIT START ---');
+
+            for(const instr of INSTRUMENTS){
+              try{
                 await scan(instr);
-                await sleep(1200);
-              } catch (e) {
-                log(`[ERROR] ${instr.name} | ${e.message || e}`);
+              }catch(e){
+                log(`[ERROR] ${instr.name}: ${e.message}`);
               }
             }
 
-            fs.writeFileSync('signal-cache.json', JSON.stringify(cache, null, 2));
-            log('--- SYSTEM O v5.1 WATCH TD END ---');
+            fs.writeFileSync('signal-cache.json', JSON.stringify(cache,null,2));
+            log('--- SYSTEM O v5.4 CLEAR EXIT END ---');
           }
 
           main();
