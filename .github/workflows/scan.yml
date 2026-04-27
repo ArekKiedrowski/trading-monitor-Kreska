@@ -1,4 +1,4 @@
-name: System O v5.4 CLEAR EXIT ALERTS
+name: System O v5.4 Clear Exit Alerts
 
 on:
   schedule:
@@ -28,17 +28,17 @@ jobs:
           const https = require('https');
           const fs = require('fs');
 
+          const VERSION = 'SYSTEM_O_V54_CLEAR_EXIT';
+
           const TD_KEY = process.env.TD_KEY;
           const TG_TOKEN = process.env.TG_TOKEN;
           const TG_CHAT_ID = process.env.TG_CHAT_ID;
 
-          const VERSION = 'SYSTEM_O_V54_CLEAR_EXIT';
-
           const INSTRUMENTS = [
-            { key:'nvda', name:'NVDA', sym:'NVDA', dec:2 },
-            { key:'tsla', name:'TSLA', sym:'TSLA', dec:2 },
-            { key:'goog', name:'GOOG', sym:'GOOG', dec:2 },
-            { key:'btc',  name:'BTC',  sym:'BTC/USD', dec:2 }
+            { key: 'nvda', name: 'NVDA', sym: 'NVDA', dec: 2 },
+            { key: 'tsla', name: 'TSLA', sym: 'TSLA', dec: 2 },
+            { key: 'goog', name: 'GOOG', sym: 'GOOG', dec: 2 },
+            { key: 'btc',  name: 'BTC',  sym: 'BTC/USD', dec: 2 }
           ];
 
           let cache = {
@@ -49,178 +49,245 @@ jobs:
 
           try {
             if (fs.existsSync('signal-cache.json')) {
-              const parsed = JSON.parse(fs.readFileSync('signal-cache.json','utf8'));
+              const parsed = JSON.parse(fs.readFileSync('signal-cache.json', 'utf8'));
               if (parsed.version === VERSION) cache = parsed;
             }
-          } catch {}
+          } catch (e) {}
 
-          function log(msg){
-            const t = new Date().toISOString().replace('T',' ').slice(0,19);
+          function log(msg) {
+            const t = new Date().toISOString().replace('T', ' ').slice(0, 19);
             console.log(`[${t}] ${msg}`);
           }
 
-          function money(v,d=2){ return Number(v || 0).toFixed(d); }
+          function money(v, d = 2) {
+            return Number(v || 0).toFixed(d);
+          }
 
-          function minutesSince(t){
-            if(!t) return Infinity;
+          function minutesSince(t) {
+            if (!t) return Infinity;
             return (Date.now() - new Date(t).getTime()) / 60000;
           }
 
-          function canSend(key, type, mins=45){
+          function canSend(key, type, mins) {
             const id = `${key}_${type}`;
             return minutesSince(cache.lastAlert[id]) >= mins;
           }
 
-          function markSent(key,type){
+          function markSent(key, type) {
             cache.lastAlert[`${key}_${type}`] = new Date().toISOString();
           }
 
-          function send(msg){
-            if(!TG_TOKEN || !TG_CHAT_ID) return;
+          function sendTG(msg) {
+            if (!TG_TOKEN || !TG_CHAT_ID) {
+              log('[TG] Missing TG_TOKEN or TG_CHAT_ID');
+              return Promise.resolve();
+            }
 
             const body = JSON.stringify({
               chat_id: TG_CHAT_ID,
               text: msg
             });
 
-            const req = https.request({
-              hostname:'api.telegram.org',
-              path:`/bot${TG_TOKEN}/sendMessage`,
-              method:'POST',
-              headers:{
-                'Content-Type':'application/json',
-                'Content-Length':Buffer.byteLength(body)
+            const opts = {
+              hostname: 'api.telegram.org',
+              path: `/bot${TG_TOKEN}/sendMessage`,
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(body)
               }
-            });
+            };
 
-            req.on('error',()=>{});
-            req.write(body);
-            req.end();
+            return new Promise(resolve => {
+              const req = https.request(opts, res => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => {
+                  if (res.statusCode >= 400) {
+                    log(`[TG ERROR] ${res.statusCode} ${data}`);
+                  }
+                  resolve();
+                });
+              });
+
+              req.on('error', e => {
+                log(`[TG ERROR] ${e.message}`);
+                resolve();
+              });
+
+              req.write(body);
+              req.end();
+            });
           }
 
-          function fetchData(sym){
-            return new Promise((resolve,reject)=>{
+          function fetchData(sym) {
+            return new Promise((resolve, reject) => {
               const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=1h&outputsize=200&apikey=${TD_KEY}`;
 
-              https.get(url,res=>{
-                let d='';
-                res.on('data',c=>d+=c);
-                res.on('end',()=>{
-                  try{
+              https.get(url, res => {
+                let d = '';
+                res.on('data', c => d += c);
+                res.on('end', () => {
+                  try {
                     const j = JSON.parse(d);
-                    if(!j.values) return reject(new Error(j.message || 'No values'));
 
-                    const data = j.values.slice().reverse().map(x=>({
-                      close: parseFloat(x.close),
-                      high: parseFloat(x.high),
-                      low: parseFloat(x.low),
-                      open: parseFloat(x.open)
-                    })).filter(x=>Number.isFinite(x.close));
+                    if (j.status === 'error') {
+                      return reject(new Error(j.message || 'Twelve Data error'));
+                    }
+
+                    if (!j.values || !Array.isArray(j.values)) {
+                      return reject(new Error('No Twelve Data values'));
+                    }
+
+                    const data = j.values
+                      .slice()
+                      .reverse()
+                      .map(x => ({
+                        open: parseFloat(x.open),
+                        high: parseFloat(x.high),
+                        low: parseFloat(x.low),
+                        close: parseFloat(x.close)
+                      }))
+                      .filter(x =>
+                        Number.isFinite(x.open) &&
+                        Number.isFinite(x.high) &&
+                        Number.isFinite(x.low) &&
+                        Number.isFinite(x.close)
+                      );
 
                     resolve(data);
-                  }catch(e){ reject(e); }
+                  } catch (e) {
+                    reject(e);
+                  }
                 });
-              }).on('error',reject);
+              }).on('error', reject);
             });
           }
 
-          function ema(data,p){
-            if(data.length < p) return null;
-            let k=2/(p+1), v=data[0];
-            for(let i=1;i<data.length;i++) v=data[i]*k + v*(1-k);
+          function ema(values, period) {
+            if (!values || values.length < period) return null;
+            const k = 2 / (period + 1);
+            let v = values[0];
+            for (let i = 1; i < values.length; i++) {
+              v = values[i] * k + v * (1 - k);
+            }
             return v;
           }
 
-          function atr(data,p=14){
-            if(data.length < p+2) return null;
-            let trs=[];
-            for(let i=1;i<data.length;i++){
+          function atr(data, period = 14) {
+            if (data.length < period + 2) return null;
+
+            const trs = [];
+
+            for (let i = 1; i < data.length; i++) {
               trs.push(Math.max(
-                data[i].high-data[i].low,
-                Math.abs(data[i].high-data[i-1].close),
-                Math.abs(data[i].low-data[i-1].close)
+                data[i].high - data[i].low,
+                Math.abs(data[i].high - data[i - 1].close),
+                Math.abs(data[i].low - data[i - 1].close)
               ));
             }
-            return trs.slice(-p).reduce((a,b)=>a+b,0)/p;
+
+            const last = trs.slice(-period);
+            return last.reduce((a, b) => a + b, 0) / period;
           }
 
-          function levels(data){
-            const closes = data.map(x=>x.close);
+          function calcLevels(data) {
+            const closes = data.map(x => x.close);
             const price = closes.at(-1);
-            const ema20 = ema(closes.slice(-60),20);
-            const ema50 = ema(closes.slice(-120),50);
-            const atrVal = atr(data);
+
+            const ema20 = ema(closes.slice(-60), 20);
+            const ema50 = ema(closes.slice(-120), 50);
+            const atrVal = atr(data, 14);
+
+            if (!ema20 || !ema50 || !atrVal) return null;
 
             const last6 = data.slice(-6);
-            const localHigh = Math.max(...last6.slice(0,-1).map(x=>x.high));
-            const localLow = Math.min(...last6.map(x=>x.low));
+            const prev5 = last6.slice(0, -1);
 
-            const zoneLow = ema20 - atrVal*0.2;
-            const zoneHigh = ema20 + atrVal*0.2;
+            const localHigh = Math.max(...prev5.map(x => x.high));
+            const localLow = Math.min(...last6.map(x => x.low));
 
-            const sl = zoneLow - atrVal*0.5;
+            const zoneLow = ema20 - atrVal * 0.20;
+            const zoneHigh = ema20 + atrVal * 0.20;
+
             const trigger = localHigh;
+            const sl = zoneLow - atrVal * 0.50;
             const tp1 = trigger + (trigger - sl) * 1.5;
             const tp2 = trigger + (trigger - sl) * 3;
 
-            return { price, ema20, ema50, atrVal, zoneLow, zoneHigh, localHigh, localLow, trigger, sl, tp1, tp2 };
+            return {
+              price,
+              ema20,
+              ema50,
+              atrVal,
+              localHigh,
+              localLow,
+              zoneLow,
+              zoneHigh,
+              trigger,
+              sl,
+              tp1,
+              tp2
+            };
           }
 
-          function scanSignal(instr, lv){
+          function getSignal(lv) {
             const trend = lv.price > lv.ema50;
             const distance = (lv.price - lv.ema20) / lv.ema20;
-            const extended = distance > 0.02;
+
+            const tooLate = distance > 0.02;
             const inZone = lv.price >= lv.zoneLow && lv.price <= lv.zoneHigh;
             const nearZone = distance > 0.003 && distance <= 0.02;
-            const triggerNow = lv.price > lv.trigger && inZone;
+            const entry = lv.price > lv.trigger && inZone;
 
-            if(!trend) return 'NO_TRADE';
-            if(extended) return 'TOO_LATE';
-            if(nearZone) return 'WATCH';
-            if(inZone && !triggerNow) return 'READY';
-            if(triggerNow) return 'ENTRY';
+            if (!trend) return 'NO_TRADE';
+            if (tooLate) return 'TOO_LATE';
+            if (nearZone) return 'WATCH';
+            if (inZone && !entry) return 'READY';
+            if (entry) return 'ENTRY';
 
             return 'NO_TRADE';
           }
 
-          function manageTrade(instr, lv){
+          async function manageTrade(instr, lv) {
             const t = cache.activeTrades[instr.key];
-            if(!t) return;
+            if (!t) return;
 
             const price = lv.price;
             const risk = Math.abs(t.entry - t.sl);
+            if (risk <= 0) return;
+
             const rNow = (price - t.entry) / risk;
 
-            if(price <= t.sl && !t.closed){
-              send(`🛑 EXIT: ${instr.name}
+            if (price <= t.sl) {
+              await sendTG(`🛑 EXIT: ${instr.name}
 
-SL trafiony lub struktura złamana.
+SL trafiony albo struktura złamana.
 
-Entry: ${money(t.entry,instr.dec)}
-Exit area: ${money(price,instr.dec)}
+Entry: ${money(t.entry, instr.dec)}
+Exit area: ${money(price, instr.dec)}
 
 Trade zamknięty.`);
-              t.closed = true;
               delete cache.activeTrades[instr.key];
               return;
             }
 
-            if(rNow >= 1 && !t.beAlert){
-              send(`🛡️ PRZESUŃ SL: ${instr.name}
+            if (rNow >= 1 && !t.beAlert) {
+              await sendTG(`🛡️ PRZESUŃ SL: ${instr.name}
 
 Trade jest na +1R.
 
 Zrób:
 SL → BE / okolice wejścia
 
-Entry: ${money(t.entry,instr.dec)}
-Nowa ochrona: ${money(t.entry,instr.dec)}`);
+Entry: ${money(t.entry, instr.dec)}
+Nowa ochrona: ${money(t.entry, instr.dec)}`);
               t.beAlert = true;
               return;
             }
 
-            if(rNow >= 2 && !t.secureAlert){
-              send(`💰 ZABEZPIECZ ZYSK: ${instr.name}
+            if (rNow >= 2 && !t.secureAlert) {
+              await sendTG(`💰 ZABEZPIECZ ZYSK: ${instr.name}
 
 Trade jest mocno na plusie.
 
@@ -228,28 +295,13 @@ Zrób:
 SL → pod ostatni wyższy dołek
 albo zamknij część pozycji.
 
-Aktualna cena: ${money(price,instr.dec)}`);
+Aktualna cena: ${money(price, instr.dec)}`);
               t.secureAlert = true;
               return;
             }
 
-            if(price < lv.ema20 && !t.exitWarning && rNow > 0.5){
-              send(`⚠️ EXIT WARNING: ${instr.name}
-
-Cena traci momentum.
-Nie zamykaj w panice, ale obserwuj.
-
-Jeśli kolejna świeca H1 zamknie się słabo:
-→ rozważ wyjście ręczne.
-
-Cena: ${money(price,instr.dec)}
-EMA20: ${money(lv.ema20,instr.dec)}`);
-              t.exitWarning = true;
-              return;
-            }
-
-            if(price >= t.tp1 && !t.tp1Alert){
-              send(`🎯 TP1 HIT: ${instr.name}
+            if (price >= t.tp1 && !t.tp1Alert) {
+              await sendTG(`🎯 TP1 HIT: ${instr.name}
 
 Pierwszy cel osiągnięty.
 
@@ -257,13 +309,13 @@ Zrób:
 część zysku możesz zabezpieczyć,
 SL minimum na BE.
 
-Cena: ${money(price,instr.dec)}`);
+Cena: ${money(price, instr.dec)}`);
               t.tp1Alert = true;
               return;
             }
 
-            if(price >= t.tp2 && !t.tp2Alert){
-              send(`🏆 TP2 HIT: ${instr.name}
+            if (price >= t.tp2 && !t.tp2Alert) {
+              await sendTG(`🏆 TP2 HIT: ${instr.name}
 
 Duży ruch złapany.
 
@@ -271,75 +323,97 @@ Zrób:
 mocno zabezpiecz zysk
 albo zamknij większość pozycji.
 
-Cena: ${money(price,instr.dec)}`);
+Cena: ${money(price, instr.dec)}`);
               t.tp2Alert = true;
+              return;
+            }
+
+            if (price < lv.ema20 && !t.exitWarning && rNow > 0.5) {
+              await sendTG(`⚠️ EXIT WARNING: ${instr.name}
+
+Cena traci momentum.
+Nie zamykaj w panice, ale obserwuj.
+
+Jeśli kolejna świeca H1 zamknie się słabo:
+→ rozważ wyjście ręczne.
+
+Cena: ${money(price, instr.dec)}
+EMA20: ${money(lv.ema20, instr.dec)}`);
+              t.exitWarning = true;
               return;
             }
           }
 
-          async function scan(instr){
+          async function scan(instr) {
             const data = await fetchData(instr.sym);
-            const lv = levels(data);
+            const lv = calcLevels(data);
 
-            manageTrade(instr, lv);
+            if (!lv) {
+              log(`[SKIP] ${instr.name}: not enough data`);
+              return;
+            }
 
-            const signal = scanSignal(instr, lv);
+            await manageTrade(instr, lv);
 
-            if(signal === 'NO_TRADE') return;
+            const signal = getSignal(lv);
 
-            if(signal === 'TOO_LATE' && canSend(instr.key,'too_late',60)){
-              send(`🛑 NIE WCHODŹ: ${instr.name}
+            log(`[SCAN] ${instr.name} | ${signal} | price ${money(lv.price, instr.dec)}`);
+
+            if (signal === 'NO_TRADE') return;
+
+            if (signal === 'TOO_LATE' && canSend(instr.key, 'too_late', 60)) {
+              await sendTG(`🛑 NIE WCHODŹ: ${instr.name}
 
 Ruch już poszedł.
 To jest gonienie rynku.
 
 Czekamy na nowe cofnięcie.`);
-              markSent(instr.key,'too_late');
+              markSent(instr.key, 'too_late');
               return;
             }
 
-            if(signal === 'WATCH' && canSend(instr.key,'watch',60)){
-              send(`👀 OBSERWUJ: ${instr.name}
+            if (signal === 'WATCH' && canSend(instr.key, 'watch', 60)) {
+              await sendTG(`👀 OBSERWUJ: ${instr.name}
 
 Jeszcze NIE wchodź.
 
 Interesuje nas cofnięcie do:
-${money(lv.zoneLow,instr.dec)} – ${money(lv.zoneHigh,instr.dec)}
+${money(lv.zoneLow, instr.dec)} – ${money(lv.zoneHigh, instr.dec)}
 
 Wejście dopiero po wybiciu:
-${money(lv.trigger,instr.dec)}
+${money(lv.trigger, instr.dec)}
 
 Setup anulowany poniżej:
-${money(lv.sl,instr.dec)}`);
-              markSent(instr.key,'watch');
+${money(lv.sl, instr.dec)}`);
+              markSent(instr.key, 'watch');
               return;
             }
 
-            if(signal === 'READY' && canSend(instr.key,'ready',45)){
-              send(`🟡 PRZYGOTUJ SIĘ: ${instr.name}
+            if (signal === 'READY' && canSend(instr.key, 'ready', 45)) {
+              await sendTG(`🟡 PRZYGOTUJ SIĘ: ${instr.name}
 
 Cena jest w dobrej strefie.
 Jeszcze NIE klikaj.
 
 Czekamy na wybicie:
-${money(lv.trigger,instr.dec)}
+${money(lv.trigger, instr.dec)}
 
 Plan:
-Entry: ${money(lv.trigger,instr.dec)}
-SL: ${money(lv.sl,instr.dec)}
-TP1: ${money(lv.tp1,instr.dec)}
-TP2: ${money(lv.tp2,instr.dec)}`);
-              markSent(instr.key,'ready');
+Entry: ${money(lv.trigger, instr.dec)}
+SL: ${money(lv.sl, instr.dec)}
+TP1: ${money(lv.tp1, instr.dec)}
+TP2: ${money(lv.tp2, instr.dec)}`);
+              markSent(instr.key, 'ready');
               return;
             }
 
-            if(signal === 'ENTRY' && canSend(instr.key,'entry',240)){
-              send(`🚀 WEJŚCIE: ${instr.name} LONG
+            if (signal === 'ENTRY' && canSend(instr.key, 'entry', 240)) {
+              await sendTG(`🚀 WEJŚCIE: ${instr.name} LONG
 
-Entry: ${money(lv.price,instr.dec)}
-SL: ${money(lv.sl,instr.dec)}
-TP1: ${money(lv.tp1,instr.dec)}
-TP2: ${money(lv.tp2,instr.dec)}
+Entry: ${money(lv.price, instr.dec)}
+SL: ${money(lv.sl, instr.dec)}
+TP1: ${money(lv.tp1, instr.dec)}
+TP2: ${money(lv.tp2, instr.dec)}
 
 Plan:
 +1R → SL na BE
@@ -352,30 +426,31 @@ utrata EMA20 → exit warning`);
                 tp1: lv.tp1,
                 tp2: lv.tp2,
                 createdAt: new Date().toISOString(),
-                beAlert:false,
-                secureAlert:false,
-                tp1Alert:false,
-                tp2Alert:false,
-                exitWarning:false
+                beAlert: false,
+                secureAlert: false,
+                tp1Alert: false,
+                tp2Alert: false,
+                exitWarning: false
               };
 
-              markSent(instr.key,'entry');
+              markSent(instr.key, 'entry');
               return;
             }
           }
 
-          async function main(){
+          async function main() {
             log('--- SYSTEM O v5.4 CLEAR EXIT START ---');
 
-            for(const instr of INSTRUMENTS){
-              try{
+            for (const instr of INSTRUMENTS) {
+              try {
                 await scan(instr);
-              }catch(e){
+              } catch (e) {
                 log(`[ERROR] ${instr.name}: ${e.message}`);
               }
             }
 
-            fs.writeFileSync('signal-cache.json', JSON.stringify(cache,null,2));
+            fs.writeFileSync('signal-cache.json', JSON.stringify(cache, null, 2));
+
             log('--- SYSTEM O v5.4 CLEAR EXIT END ---');
           }
 
