@@ -1,418 +1,493 @@
-const https = require('https');
-const fs = require('fs');
+name: System O v5 SERVER
 
-// ================= CONFIG =================
-const TG_TOKEN = process.env.TG_TOKEN;
-const TG_CHAT_ID = process.env.TG_CHAT_ID;
-const ACCOUNT_BALANCE = parseFloat(process.env.ACCOUNT_BALANCE || 10000);
+on:
+  schedule:
+    - cron: '*/5 6-23 * * 1-5'
+  workflow_dispatch:
 
-const TG_THREADS = { SETUP: 2, TRADE: 3, SYSTEM: 4 };
+jobs:
+  scan:
+    runs-on: ubuntu-latest
 
-const INSTRUMENTS = [
-  { key: 'btc', name: 'BTC', sym: 'BTC-USD', dec: 2, minRR: 4, market: 'CRYPTO' },
-  { key: 'tsla', name: 'TSLA', sym: 'TSLA', dec: 2, minRR: 4, market: 'TECH' },
-  { key: 'nvda', name: 'NVDA', sym: 'NVDA', dec: 2, minRR: 4, market: 'TECH' },
-  { key: 'goog', name: 'GOOG', sym: 'GOOG', dec: 2, minRR: 3, market: 'TECH' }
-];
+    steps:
+      - name: Restore signal cache
+        uses: actions/cache@v4
+        with:
+          path: signal-cache.json
+          key: system-o-v5-${{ github.run_id }}
+          restore-keys: |
+            system-o-v5-
 
-// ================= CACHE =================
-let cache = { pendingSetups: {}, activePositions: {} };
+      - name: Run System O v5 PRO scanner
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          ACCOUNT_BALANCE: ${{ secrets.ACCOUNT_BALANCE }}
+          TG_THREAD_SETUPS: ${{ secrets.TG_THREAD_SETUPS }}
+          TG_THREAD_SYSTEM: ${{ secrets.TG_THREAD_SYSTEM }}
+        run: |
+          node << 'SCRIPT'
+          const https = require('https');
+          const fs = require('fs');
 
-try {
-  if (fs.existsSync('signal-cache.json')) {
-    cache = JSON.parse(fs.readFileSync('signal-cache.json', 'utf8'));
-  }
-} catch {
-  cache = { pendingSetups: {}, activePositions: {} };
-}
+          // ================= CONFIG =================
+          const VERSION = 'SYSTEM_O_V5_SERVER_PRO';
 
-// ================= HELPERS =================
-function log(msg) {
-  const t = new Date().toISOString().replace('T', ' ').slice(0, 19);
-  console.log(`[${t}] ${msg}`);
-}
+          const TG_TOKEN = process.env.TG_TOKEN;
+          const TG_CHAT_ID = process.env.TG_CHAT_ID;
+          const ACCOUNT_BALANCE = parseFloat(process.env.ACCOUNT_BALANCE || '10000');
 
-function money(v, d = 2) {
-  return Number(v).toFixed(d);
-}
+          const TG_THREADS = {
+            SETUP: Number(process.env.TG_THREAD_SETUPS || '2'),
+            SYSTEM: Number(process.env.TG_THREAD_SYSTEM || '4')
+          };
 
-// ================= TELEGRAM =================
-async function sendTG(type, message) {
-  if (!TG_TOKEN || !TG_CHAT_ID) return;
+          const MAX_EXPOSURE = 1.0;
 
-  const body = JSON.stringify({
-    chat_id: TG_CHAT_ID,
-    message_thread_id: TG_THREADS[type],
-    text: message,
-    parse_mode: 'HTML'
-  });
+          const INSTRUMENTS = [
+            { key: 'btc',  name: 'BTC',  sym: 'BTC-USD', dec: 2, minRR: 4, market: 'CRYPTO' },
+            { key: 'tsla', name: 'TSLA', sym: 'TSLA',    dec: 2, minRR: 4, market: 'TECH' },
+            { key: 'nvda', name: 'NVDA', sym: 'NVDA',    dec: 2, minRR: 4, market: 'TECH' },
+            { key: 'goog', name: 'GOOG', sym: 'GOOG',    dec: 2, minRR: 3, market: 'TECH' }
+          ];
 
-  const opts = {
-    hostname: 'api.telegram.org',
-    path: `/bot${TG_TOKEN}/sendMessage`,
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(body)
-    }
-  };
+          // ================= CACHE =================
+          let cache = {
+            version: VERSION,
+            pendingSetups: {},
+            lastSignals: {},
+            scans: []
+          };
 
-  return new Promise(res => {
-    const req = https.request(opts, () => res());
-    req.on('error', () => res());
-    req.write(body);
-    req.end();
-  });
-}
-
-async function notify(type, message, instr) {
-  log(`[${instr}] ${message.replace(/<[^>]*>/g, '')}`);
-  await sendTG(type, message);
-}
-
-// ================= DATA =================
-async function fetchYahoo(sym) {
-  return new Promise((resolve, reject) => {
-    https.get(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1h&range=60d`,
-      res => {
-        let d = '';
-        res.on('data', c => (d += c));
-        res.on('end', () => {
           try {
-            const json = JSON.parse(d);
-            if (!json.chart || !json.chart.result || !json.chart.result[0]) {
-              return reject(new Error('No Yahoo data'));
+            if (fs.existsSync('signal-cache.json')) {
+              const parsed = JSON.parse(fs.readFileSync('signal-cache.json', 'utf8'));
+              if (parsed && parsed.version === VERSION) cache = parsed;
             }
-            resolve(json.chart.result[0]);
-          } catch (e) {
-            reject(e);
+          } catch {}
+
+          // ================= HELPERS =================
+          function log(msg) {
+            const t = new Date().toISOString().replace('T', ' ').slice(0, 19);
+            console.log(`[${t}] ${msg}`);
           }
-        });
-      }
-    ).on('error', reject);
-  });
-}
-
-function candlesFromRaw(r) {
-  const q = r.indicators.quote[0];
-  const t = r.timestamp;
-  const out = [];
-
-  for (let i = 0; i < t.length; i++) {
-    if (
-      q.open[i] !== null &&
-      q.high[i] !== null &&
-      q.low[i] !== null &&
-      q.close[i] !== null
-    ) {
-      out.push({
-        t: t[i],
-        o: q.open[i],
-        h: q.high[i],
-        l: q.low[i],
-        c: q.close[i]
-      });
-    }
-  }
 
-  return out;
-}
-
-// ================= INDICATORS =================
-function ema(data, period) {
-  if (!data || data.length === 0) return null;
-
-  const k = 2 / (period + 1);
-  let val = data[0];
-
-  for (let i = 1; i < data.length; i++) {
-    val = data[i] * k + val * (1 - k);
-  }
-
-  return val;
-}
-
-function atr(highs, lows, closes, p = 14) {
-  if (closes.length < p + 2) return null;
-
-  let trs = [];
-
-  for (let i = 1; i < closes.length; i++) {
-    trs.push(
-      Math.max(
-        highs[i] - lows[i],
-        Math.abs(highs[i] - closes[i - 1]),
-        Math.abs(lows[i] - closes[i - 1])
-      )
-    );
-  }
-
-  const last = trs.slice(-p);
-  return last.reduce((a, b) => a + b, 0) / p;
-}
-
-// ================= BASIC LOGIC =================
-function detectTrend(candles) {
-  const closes = candles.map(x => x.c);
-
-  if (closes.length < 220) return false;
-
-  const ema50 = ema(closes.slice(-80), 50);
-  const ema200 = ema(closes.slice(-240), 200);
-  const price = closes.at(-1);
-
-  return price > ema50 && ema50 > ema200;
-}
-
-function detectBoneZone(candles) {
-  const closes = candles.map(x => x.c);
-  const price = closes.at(-1);
-
-  const ema9 = ema(closes.slice(-30), 9);
-  const ema20 = ema(closes.slice(-50), 20);
-
-  if (!ema9 || !ema20) return false;
-
-  return price <= ema9 * 1.01 && price >= ema20 * 0.99;
-}
-
-function detectTrigger(candles) {
-  if (candles.length < 3) return false;
-
-  const prevHigh = candles.at(-2).h;
-  const last = candles.at(-1);
-
-  const body = Math.abs(last.c - last.o);
-  const range = last.h - last.l;
-
-  if (range === 0) return false;
-
-  const bodyRatio = body / range;
-
-  return last.c > prevHigh && bodyRatio > 0.45 && last.c > last.o;
-}
-
-// ================= PRO FILTERS =================
-function isExtendedMove(candles, atrVal) {
-  if (!atrVal || candles.length < 8) return false;
-
-  const last = candles.at(-1).c;
-  const prev5 = candles.at(-6).c;
-
-  const move = last - prev5;
-
-  return move > atrVal * 1.4;
-}
-
-function isNearEMAZone(candles) {
-  const closes = candles.map(x => x.c);
-  const price = closes.at(-1);
-
-  const ema9 = ema(closes.slice(-30), 9);
-  const ema20 = ema(closes.slice(-50), 20);
-
-  if (!ema9 || !ema20) return false;
-
-  return price <= ema9 * 1.005 && price >= ema20 * 0.995;
-}
-
-function hasPullbackStructure(candles) {
-  const last5 = candles.slice(-5);
-
-  const redCandles = last5.filter(c => c.c < c.o).length;
-  const lowerCloses = last5.filter((c, i, arr) => {
-    if (i === 0) return false;
-    return c.c < arr[i - 1].c;
-  }).length;
-
-  return redCandles >= 2 || lowerCloses >= 2;
-}
-
-function validateProEntry(candles, atrVal) {
-  const extended = isExtendedMove(candles, atrVal);
-  const nearEMA = isNearEMAZone(candles);
-  const pullback = hasPullbackStructure(candles);
-
-  if (extended) {
-    return { ok: false, reason: 'AFTER IMPULSE / TOO LATE' };
-  }
-
-  if (!nearEMA) {
-    return { ok: false, reason: 'NO EMA PULLBACK ZONE' };
-  }
-
-  if (!pullback) {
-    return { ok: false, reason: 'NO REAL PULLBACK' };
-  }
-
-  return { ok: true, reason: 'PRO PULLBACK CONFIRMED' };
-}
-
-// ================= POSITION SIZE =================
-function calcSize(balance, risk, entry, sl) {
-  const riskUSD = balance * risk;
-  const riskPerUnit = Math.abs(entry - sl);
-
-  if (riskPerUnit <= 0) {
-    return { size: 0, value: 0, riskUSD };
-  }
-
-  const size = riskUSD / riskPerUnit;
-
-  return {
-    size,
-    value: size * entry,
-    riskUSD
-  };
-}
-
-// ================= SCORE =================
-function scoreSetup({ trend, bone, trigger, pro }) {
-  let s = 0;
-
-  if (trend) s += 30;
-  if (bone) s += 25;
-  if (trigger) s += 25;
-  if (pro.ok) s += 20;
-
-  return s;
-}
-
-function gradeFromScore(score) {
-  if (score >= 85) return { grade: 'A+', risk: 0.02 };
-  if (score >= 70) return { grade: 'A', risk: 0.01 };
-  if (score >= 55) return { grade: 'WATCH', risk: 0 };
-  return { grade: 'INVALID', risk: 0 };
-}
-
-function isDuplicateSetup(instr, price) {
-  const existing = cache.pendingSetups[instr.key];
-
-  if (!existing) return false;
-
-  const diff = Math.abs(existing.entry - price) / price;
-
-  return diff < 0.002;
-}
-
-// ================= CORE =================
-async function scan(instr) {
-  const raw = await fetchYahoo(instr.sym);
-  const candles = candlesFromRaw(raw);
-
-  if (candles.length < 220) {
-    log(`[SKIP] ${instr.name} | Not enough candles`);
-    return;
-  }
-
-  const closes = candles.map(c => c.c);
-  const highs = candles.map(c => c.h);
-  const lows = candles.map(c => c.l);
-
-  const atrVal = atr(highs, lows, closes);
-  const price = closes.at(-1);
-
-  if (!atrVal) {
-    log(`[SKIP] ${instr.name} | No ATR`);
-    return;
-  }
-
-  const trend = detectTrend(candles);
-  const bone = detectBoneZone(candles);
-  const trigger = detectTrigger(candles);
-  const pro = validateProEntry(candles, atrVal);
-
-  const score = scoreSetup({ trend, bone, trigger, pro });
-  const { grade, risk } = gradeFromScore(score);
-
-  log(
-    `[SCAN] ${instr.name} | Score ${score} | ${grade} | Trend:${trend} Bone:${bone} Trigger:${trigger} PRO:${pro.reason}`
-  );
-
-  if (!trend) {
-    log(`[SKIP] ${instr.name} | NO TREND`);
-    return;
-  }
-
-  if (!pro.ok) {
-    log(`[SKIP PRO] ${instr.name} | ${pro.reason}`);
-    return;
-  }
-
-  if (!trigger) {
-    log(`[WATCH] ${instr.name} | Pullback OK, waiting for trigger`);
-    return;
-  }
-
-  if (grade === 'INVALID' || risk <= 0) {
-    log(`[SKIP] ${instr.name} | Grade ${grade}, risk ${risk}`);
-    return;
-  }
-
-  if (isDuplicateSetup(instr, price)) {
-    log(`[SKIP] ${instr.name} | Duplicate setup`);
-    return;
-  }
-
-  const sl = price - atrVal * 1.2;
-  const tp = price + (price - sl) * instr.minRR;
-
-  const pos = calcSize(ACCOUNT_BALANCE, risk, price, sl);
-
-  await notify(
-    'SETUP',
-    `🚀 <b>${instr.name} LONG</b>
-Grade: <b>${grade}</b>
-Score: <b>${score}/100</b>
-
-<b>PRO FILTER:</b>
-${pro.reason}
-
-<b>Entry:</b> ${money(price, instr.dec)}
-<b>SL:</b> ${money(sl, instr.dec)}
-<b>TP:</b> ${money(tp, instr.dec)}
-
-<b>Risk:</b> ${(risk * 100).toFixed(1)}%
-<b>Risk USD:</b> $${money(pos.riskUSD, 0)}
-<b>Size:</b> ${money(pos.size, 4)}
-<b>Value:</b> $${money(pos.value, 0)}
-
-System O v5 PRO`,
-    instr.name
-  );
-
-  cache.pendingSetups[instr.key] = {
-    direction: 'LONG',
-    entry: price,
-    sl,
-    tp,
-    grade,
-    score,
-    risk,
-    createdAt: new Date().toISOString()
-  };
-}
-
-// ================= MAIN =================
-async function main() {
-  log('--- SYSTEM O v5 PRO START ---');
-
-  for (const instr of INSTRUMENTS) {
-    process.stdout.write(`[SCANNING] ${instr.name}... `);
-
-    try {
-      await scan(instr);
-      process.stdout.write('DONE\n');
-    } catch (e) {
-      process.stdout.write('FAIL\n');
-      log(`[ERROR] ${instr.name} | ${e.message || e}`);
-    }
-  }
-
-  fs.writeFileSync('signal-cache.json', JSON.stringify(cache, null, 2));
-
-  log('--- SYSTEM O v5 PRO END ---');
-}
-
-main();
+          function money(v, d = 2) {
+            return Number(v || 0).toFixed(d);
+          }
+
+          function escapeHTML(str) {
+            return String(str)
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;');
+          }
+
+          function nowISO() {
+            return new Date().toISOString();
+          }
+
+          // ================= TELEGRAM =================
+          async function sendTG(type, message) {
+            if (!TG_TOKEN || !TG_CHAT_ID) {
+              log('[TG] Missing TG_TOKEN or TG_CHAT_ID');
+              return;
+            }
+
+            const payload = {
+              chat_id: TG_CHAT_ID,
+              text: message,
+              parse_mode: 'HTML',
+              disable_web_page_preview: true
+            };
+
+            if (TG_THREADS[type] && TG_THREADS[type] > 0) {
+              payload.message_thread_id = TG_THREADS[type];
+            }
+
+            const body = JSON.stringify(payload);
+
+            const opts = {
+              hostname: 'api.telegram.org',
+              path: `/bot${TG_TOKEN}/sendMessage`,
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(body)
+              }
+            };
+
+            return new Promise(resolve => {
+              const req = https.request(opts, res => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => {
+                  if (res.statusCode >= 400) {
+                    log(`[TG ERROR] ${res.statusCode} ${data}`);
+                  }
+                  resolve();
+                });
+              });
+
+              req.on('error', e => {
+                log(`[TG ERROR] ${e.message}`);
+                resolve();
+              });
+
+              req.write(body);
+              req.end();
+            });
+          }
+
+          async function notifySetup(message) {
+            await sendTG('SETUP', message);
+          }
+
+          // ================= DATA =================
+          async function fetchYahoo(sym) {
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1h&range=60d`;
+
+            return new Promise((resolve, reject) => {
+              https.get(url, res => {
+                let d = '';
+                res.on('data', c => d += c);
+                res.on('end', () => {
+                  try {
+                    const json = JSON.parse(d);
+                    if (!json.chart || !json.chart.result || !json.chart.result[0]) {
+                      return reject(new Error('No Yahoo chart result'));
+                    }
+                    resolve(json.chart.result[0]);
+                  } catch (e) {
+                    reject(e);
+                  }
+                });
+              }).on('error', reject);
+            });
+          }
+
+          function candlesFromRaw(r) {
+            const q = r.indicators.quote[0];
+            const t = r.timestamp;
+            const out = [];
+
+            for (let i = 0; i < t.length; i++) {
+              if (
+                q.open[i] !== null &&
+                q.high[i] !== null &&
+                q.low[i] !== null &&
+                q.close[i] !== null
+              ) {
+                out.push({
+                  t: t[i],
+                  o: q.open[i],
+                  h: q.high[i],
+                  l: q.low[i],
+                  c: q.close[i]
+                });
+              }
+            }
+
+            return out;
+          }
+
+          // ================= INDICATORS =================
+          function ema(data, period) {
+            if (!data || data.length < period) return null;
+
+            const k = 2 / (period + 1);
+            let val = data[0];
+
+            for (let i = 1; i < data.length; i++) {
+              val = data[i] * k + val * (1 - k);
+            }
+
+            return val;
+          }
+
+          function atr(highs, lows, closes, p = 14) {
+            if (closes.length < p + 2) return null;
+
+            const trs = [];
+
+            for (let i = 1; i < closes.length; i++) {
+              trs.push(Math.max(
+                highs[i] - lows[i],
+                Math.abs(highs[i] - closes[i - 1]),
+                Math.abs(lows[i] - closes[i - 1])
+              ));
+            }
+
+            const last = trs.slice(-p);
+            return last.reduce((a, b) => a + b, 0) / p;
+          }
+
+          // ================= V5 PRO LOGIC =================
+          function detectTrend(candles) {
+            const closes = candles.map(x => x.c);
+            if (closes.length < 220) return false;
+
+            const ema50 = ema(closes.slice(-90), 50);
+            const ema200 = ema(closes.slice(-240), 200);
+            const price = closes.at(-1);
+
+            return price > ema50 && ema50 > ema200;
+          }
+
+          function detectBoneZone(candles) {
+            const closes = candles.map(x => x.c);
+            const price = closes.at(-1);
+
+            const ema9 = ema(closes.slice(-40), 9);
+            const ema20 = ema(closes.slice(-60), 20);
+
+            if (!ema9 || !ema20) return false;
+
+            return price <= ema9 * 1.008 && price >= ema20 * 0.992;
+          }
+
+          function detectPullback(candles) {
+            const last6 = candles.slice(-6);
+            const red = last6.filter(c => c.c < c.o).length;
+
+            let lowerCloses = 0;
+            for (let i = 1; i < last6.length; i++) {
+              if (last6[i].c < last6[i - 1].c) lowerCloses++;
+            }
+
+            return red >= 2 || lowerCloses >= 2;
+          }
+
+          function detectTrigger(candles) {
+            if (candles.length < 3) return false;
+
+            const last = candles.at(-1);
+            const prev = candles.at(-2);
+
+            const body = Math.abs(last.c - last.o);
+            const range = last.h - last.l;
+            if (range <= 0) return false;
+
+            const bodyRatio = body / range;
+
+            return (
+              last.c > last.o &&
+              last.c > prev.h &&
+              bodyRatio > 0.45
+            );
+          }
+
+          function isExtendedMove(candles, atrVal) {
+            if (!atrVal || candles.length < 8) return false;
+
+            const last = candles.at(-1).c;
+            const prev5 = candles.at(-6).c;
+            const move = last - prev5;
+
+            return move > atrVal * 1.4;
+          }
+
+          function validatePro({ trend, bone, pullback, trigger, extended }) {
+            if (extended) return { ok: false, reason: 'AFTER IMPULSE / TOO LATE' };
+            if (!trend) return { ok: false, reason: 'NO TREND' };
+            if (!bone) return { ok: false, reason: 'NO EMA / BONE ZONE' };
+            if (!pullback) return { ok: false, reason: 'NO REAL PULLBACK' };
+            if (!trigger) return { ok: false, reason: 'WATCH ONLY — WAITING FOR TRIGGER' };
+
+            return { ok: true, reason: 'PRO PULLBACK CONFIRMED' };
+          }
+
+          function scoreSetup({ trend, bone, pullback, trigger, extended }) {
+            let s = 0;
+
+            if (trend) s += 30;
+            if (bone) s += 20;
+            if (pullback) s += 20;
+            if (trigger) s += 20;
+            if (!extended) s += 10;
+
+            return s;
+          }
+
+          function gradeFromScore(score) {
+            if (score >= 85) return { grade: 'A+', risk: 0.02 };
+            if (score >= 70) return { grade: 'A', risk: 0.01 };
+            if (score >= 55) return { grade: 'WATCH', risk: 0 };
+            return { grade: 'INVALID', risk: 0 };
+          }
+
+          // ================= POSITION SIZE =================
+          function calcSize(balance, riskPct, entry, sl) {
+            const riskUSDTarget = balance * riskPct;
+            const riskPerUnit = Math.abs(entry - sl);
+
+            if (riskPerUnit <= 0 || riskPct <= 0) {
+              return { size: 0, value: 0, riskUSD: 0, riskPerUnit };
+            }
+
+            let size = riskUSDTarget / riskPerUnit;
+            let value = size * entry;
+
+            const maxValue = balance * MAX_EXPOSURE;
+
+            if (value > maxValue) {
+              const factor = maxValue / value;
+              size *= factor;
+              value = maxValue;
+            }
+
+            const realRiskUSD = riskPerUnit * size;
+
+            return {
+              size,
+              value,
+              riskUSD: realRiskUSD,
+              riskPerUnit
+            };
+          }
+
+          function isDuplicate(instrKey, price) {
+            const last = cache.lastSignals[instrKey];
+            if (!last) return false;
+
+            const ageMin = (Date.now() - new Date(last.time).getTime()) / 60000;
+            const diff = Math.abs(last.entry - price) / price;
+
+            return ageMin < 240 && diff < 0.003;
+          }
+
+          // ================= CORE =================
+          async function scan(instr) {
+            const raw = await fetchYahoo(instr.sym);
+            const candles = candlesFromRaw(raw);
+
+            if (candles.length < 220) {
+              log(`[SKIP] ${instr.name} | Not enough candles`);
+              return;
+            }
+
+            const closes = candles.map(c => c.c);
+            const highs = candles.map(c => c.h);
+            const lows = candles.map(c => c.l);
+
+            const price = closes.at(-1);
+            const atrVal = atr(highs, lows, closes, 14);
+
+            if (!atrVal) {
+              log(`[SKIP] ${instr.name} | No ATR`);
+              return;
+            }
+
+            const trend = detectTrend(candles);
+            const bone = detectBoneZone(candles);
+            const pullback = detectPullback(candles);
+            const trigger = detectTrigger(candles);
+            const extended = isExtendedMove(candles, atrVal);
+
+            const pro = validatePro({ trend, bone, pullback, trigger, extended });
+            const score = scoreSetup({ trend, bone, pullback, trigger, extended });
+            const { grade, risk } = gradeFromScore(score);
+
+            const status = pro.ok ? 'TRIGGER' : (score >= 55 ? 'WATCH' : 'SCANNING');
+
+            log(`[SCAN] ${instr.name} | Status: ${status} | Score: ${score} | ${pro.reason}`);
+
+            cache.scans.unshift({
+              time: nowISO(),
+              key: instr.key,
+              name: instr.name,
+              price,
+              score,
+              status,
+              reason: pro.reason
+            });
+
+            cache.scans = cache.scans.slice(0, 100);
+
+            if (!pro.ok) return;
+            if (grade === 'WATCH' || grade === 'INVALID' || risk <= 0) return;
+
+            if (isDuplicate(instr.key, price)) {
+              log(`[SKIP] ${instr.name} | Duplicate signal`);
+              return;
+            }
+
+            const sl = price - atrVal * 1.2;
+            const tp2 = price + (price - sl) * instr.minRR;
+
+            const pos = calcSize(ACCOUNT_BALANCE, risk, price, sl);
+
+            if (pos.value <= 0 || pos.riskUSD <= 0) {
+              log(`[SKIP] ${instr.name} | Invalid position size`);
+              return;
+            }
+
+            const msg =
+          `🚀 <b>${escapeHTML(instr.name)} LONG</b>
+          <b>System:</b> O v5 SERVER PRO
+          <b>Grade:</b> ${grade}
+          <b>Score:</b> ${score}/100
+
+          <b>Entry:</b> ${money(price, instr.dec)}
+          <b>SL:</b> ${money(sl, instr.dec)}
+          <b>TP2:</b> ${money(tp2, instr.dec)}
+
+          <b>Risk:</b> ${(risk * 100).toFixed(1)}%
+          <b>Risk USD:</b> $${money(pos.riskUSD, 0)}
+          <b>Size:</b> ${money(pos.size, 4)}
+          <b>Value:</b> $${money(pos.value, 0)}
+          <b>Risk/unit:</b> $${money(pos.riskPerUnit, 2)}
+
+          <b>PRO:</b> ${escapeHTML(pro.reason)}
+
+          • Trend: ${trend ? 'YES' : 'NO'}
+          • Bone Zone: ${bone ? 'YES' : 'NO'}
+          • Pullback: ${pullback ? 'YES' : 'NO'}
+          • Trigger: ${trigger ? 'YES' : 'NO'}
+          • Extended: ${extended ? 'YES — blocked' : 'NO'}`;
+
+            await notifySetup(msg);
+
+            cache.pendingSetups[instr.key] = {
+              direction: 'LONG',
+              entry: price,
+              sl,
+              tp2,
+              grade,
+              score,
+              risk,
+              riskUSD: pos.riskUSD,
+              value: pos.value,
+              createdAt: nowISO()
+            };
+
+            cache.lastSignals[instr.key] = {
+              time: nowISO(),
+              entry: price,
+              score,
+              grade
+            };
+
+            log(`[SIGNAL] ${instr.name} ${grade} Score ${score}`);
+          }
+
+          // ================= MAIN =================
+          async function main() {
+            log('--- SYSTEM O v5 SERVER PRO START ---');
+
+            for (const instr of INSTRUMENTS) {
+              try {
+                await scan(instr);
+              } catch (e) {
+                log(`[ERROR] ${instr.name} | ${e.message || e}`);
+              }
+            }
+
+            fs.writeFileSync('signal-cache.json', JSON.stringify(cache, null, 2));
+
+            log('--- SYSTEM O v5 SERVER PRO END ---');
+          }
+
+          main();
+          SCRIPT
