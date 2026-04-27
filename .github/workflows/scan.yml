@@ -1,4 +1,4 @@
-name: System O v5 SERVER
+name: System O v5 SERVER TD
 
 on:
   schedule:
@@ -14,12 +14,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: signal-cache.json
-          key: system-o-v5-${{ github.run_id }}
+          key: system-o-v5-td-${{ github.run_id }}
           restore-keys: |
-            system-o-v5-
+            system-o-v5-td-
 
       - name: Run System O v5 PRO scanner
         env:
+          TD_KEY: ${{ secrets.TD_KEY }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           ACCOUNT_BALANCE: ${{ secrets.ACCOUNT_BALANCE }}
@@ -30,9 +31,9 @@ jobs:
           const https = require('https');
           const fs = require('fs');
 
-          // ================= CONFIG =================
-          const VERSION = 'SYSTEM_O_V5_SERVER_PRO';
+          const VERSION = 'SYSTEM_O_V5_SERVER_TD_PRO';
 
+          const TD_KEY = process.env.TD_KEY;
           const TG_TOKEN = process.env.TG_TOKEN;
           const TG_CHAT_ID = process.env.TG_CHAT_ID;
           const ACCOUNT_BALANCE = parseFloat(process.env.ACCOUNT_BALANCE || '10000');
@@ -45,13 +46,12 @@ jobs:
           const MAX_EXPOSURE = 1.0;
 
           const INSTRUMENTS = [
-            { key: 'btc',  name: 'BTC',  sym: 'BTC-USD', dec: 2, minRR: 4, market: 'CRYPTO' },
-            { key: 'tsla', name: 'TSLA', sym: 'TSLA',    dec: 2, minRR: 4, market: 'TECH' },
-            { key: 'nvda', name: 'NVDA', sym: 'NVDA',    dec: 2, minRR: 4, market: 'TECH' },
-            { key: 'goog', name: 'GOOG', sym: 'GOOG',    dec: 2, minRR: 3, market: 'TECH' }
+            { key: 'btc',  name: 'BTC',  sym: 'BTC/USD', dec: 2, minRR: 4, type: 'crypto' },
+            { key: 'tsla', name: 'TSLA', sym: 'TSLA',    dec: 2, minRR: 4, type: 'stock' },
+            { key: 'nvda', name: 'NVDA', sym: 'NVDA',    dec: 2, minRR: 4, type: 'stock' },
+            { key: 'goog', name: 'GOOG', sym: 'GOOG',    dec: 2, minRR: 3, type: 'stock' }
           ];
 
-          // ================= CACHE =================
           let cache = {
             version: VERSION,
             pendingSetups: {},
@@ -66,7 +66,6 @@ jobs:
             }
           } catch {}
 
-          // ================= HELPERS =================
           function log(msg) {
             const t = new Date().toISOString().replace('T', ' ').slice(0, 19);
             console.log(`[${t}] ${msg}`);
@@ -74,6 +73,10 @@ jobs:
 
           function money(v, d = 2) {
             return Number(v || 0).toFixed(d);
+          }
+
+          function sleep(ms) {
+            return new Promise(r => setTimeout(r, ms));
           }
 
           function escapeHTML(str) {
@@ -88,7 +91,6 @@ jobs:
             return new Date().toISOString();
           }
 
-          // ================= TELEGRAM =================
           async function sendTG(type, message) {
             if (!TG_TOKEN || !TG_CHAT_ID) {
               log('[TG] Missing TG_TOKEN or TG_CHAT_ID');
@@ -140,14 +142,7 @@ jobs:
             });
           }
 
-          async function notifySetup(message) {
-            await sendTG('SETUP', message);
-          }
-
-          // ================= DATA =================
-          async function fetchYahoo(sym) {
-            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1h&range=60d`;
-
+          function httpsJSON(url) {
             return new Promise((resolve, reject) => {
               https.get(url, res => {
                 let d = '';
@@ -155,44 +150,52 @@ jobs:
                 res.on('end', () => {
                   try {
                     const json = JSON.parse(d);
-                    if (!json.chart || !json.chart.result || !json.chart.result[0]) {
-                      return reject(new Error('No Yahoo chart result'));
-                    }
-                    resolve(json.chart.result[0]);
+                    resolve(json);
                   } catch (e) {
-                    reject(e);
+                    reject(new Error(`Bad JSON: ${d.slice(0, 120)}`));
                   }
                 });
               }).on('error', reject);
             });
           }
 
-          function candlesFromRaw(r) {
-            const q = r.indicators.quote[0];
-            const t = r.timestamp;
-            const out = [];
+          async function fetchTwelveData(instr) {
+            if (!TD_KEY) throw new Error('Missing TD_KEY');
 
-            for (let i = 0; i < t.length; i++) {
-              if (
-                q.open[i] !== null &&
-                q.high[i] !== null &&
-                q.low[i] !== null &&
-                q.close[i] !== null
-              ) {
-                out.push({
-                  t: t[i],
-                  o: q.open[i],
-                  h: q.high[i],
-                  l: q.low[i],
-                  c: q.close[i]
-                });
-              }
+            const symbol = encodeURIComponent(instr.sym);
+            const url =
+              `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=1h&outputsize=500&apikey=${TD_KEY}`;
+
+            const json = await httpsJSON(url);
+
+            if (json.status === 'error') {
+              throw new Error(json.message || 'Twelve Data error');
             }
 
-            return out;
+            if (!json.values || !Array.isArray(json.values)) {
+              throw new Error('No Twelve Data values');
+            }
+
+            const candles = json.values
+              .slice()
+              .reverse()
+              .map(x => ({
+                t: new Date(x.datetime).getTime() / 1000,
+                o: parseFloat(x.open),
+                h: parseFloat(x.high),
+                l: parseFloat(x.low),
+                c: parseFloat(x.close)
+              }))
+              .filter(x =>
+                Number.isFinite(x.o) &&
+                Number.isFinite(x.h) &&
+                Number.isFinite(x.l) &&
+                Number.isFinite(x.c)
+              );
+
+            return candles;
           }
 
-          // ================= INDICATORS =================
           function ema(data, period) {
             if (!data || data.length < period) return null;
 
@@ -223,7 +226,6 @@ jobs:
             return last.reduce((a, b) => a + b, 0) / p;
           }
 
-          // ================= V5 PRO LOGIC =================
           function detectTrend(candles) {
             const closes = candles.map(x => x.c);
             if (closes.length < 220) return false;
@@ -317,7 +319,6 @@ jobs:
             return { grade: 'INVALID', risk: 0 };
           }
 
-          // ================= POSITION SIZE =================
           function calcSize(balance, riskPct, entry, sl) {
             const riskUSDTarget = balance * riskPct;
             const riskPerUnit = Math.abs(entry - sl);
@@ -357,13 +358,11 @@ jobs:
             return ageMin < 240 && diff < 0.003;
           }
 
-          // ================= CORE =================
           async function scan(instr) {
-            const raw = await fetchYahoo(instr.sym);
-            const candles = candlesFromRaw(raw);
+            const candles = await fetchTwelveData(instr);
 
             if (candles.length < 220) {
-              log(`[SKIP] ${instr.name} | Not enough candles`);
+              log(`[SKIP] ${instr.name} | Not enough candles: ${candles.length}`);
               return;
             }
 
@@ -425,7 +424,7 @@ jobs:
 
             const msg =
           `🚀 <b>${escapeHTML(instr.name)} LONG</b>
-          <b>System:</b> O v5 SERVER PRO
+          <b>System:</b> O v5 SERVER TD PRO
           <b>Grade:</b> ${grade}
           <b>Score:</b> ${score}/100
 
@@ -447,7 +446,7 @@ jobs:
           • Trigger: ${trigger ? 'YES' : 'NO'}
           • Extended: ${extended ? 'YES — blocked' : 'NO'}`;
 
-            await notifySetup(msg);
+            await sendTG('SETUP', msg);
 
             cache.pendingSetups[instr.key] = {
               direction: 'LONG',
@@ -472,13 +471,13 @@ jobs:
             log(`[SIGNAL] ${instr.name} ${grade} Score ${score}`);
           }
 
-          // ================= MAIN =================
           async function main() {
-            log('--- SYSTEM O v5 SERVER PRO START ---');
+            log('--- SYSTEM O v5 SERVER TD PRO START ---');
 
             for (const instr of INSTRUMENTS) {
               try {
                 await scan(instr);
+                await sleep(1200);
               } catch (e) {
                 log(`[ERROR] ${instr.name} | ${e.message || e}`);
               }
@@ -486,7 +485,7 @@ jobs:
 
             fs.writeFileSync('signal-cache.json', JSON.stringify(cache, null, 2));
 
-            log('--- SYSTEM O v5 SERVER PRO END ---');
+            log('--- SYSTEM O v5 SERVER TD PRO END ---');
           }
 
           main();
